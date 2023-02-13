@@ -1,0 +1,310 @@
+#compdef discord-gating-bot
+
+autoload -U is-at-least
+
+_discord-gating-bot() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" \
+'-c+[Sets a custom config file]:FILE:_files' \
+'--config-file=[Sets a custom config file]:FILE:_files' \
+'-t+[The discord bot token]:TOKEN: ' \
+'--token=[The discord bot token]:TOKEN: ' \
+'-s+[The number of guild shards]:SHARDS: ' \
+'--shards=[The number of guild shards]:SHARDS: ' \
+'-h+[The address to listen on]:HOST: ' \
+'--host=[The address to listen on]:HOST: ' \
+'-p+[The port to listen on]:PORT: ' \
+'--port=[The port to listen on]:PORT: ' \
+'--cert=[The path to the certificate File]:FILE:_files' \
+'-k+[The path to the private key File]:FILE:_files' \
+'--key=[The path to the private key File]:FILE:_files' \
+'--acme-endpoint=[The address of the acme server to use]:ACME_ENDPOINT: ' \
+'--acme-port=[The port to listen on]:ACME_PORT: ' \
+'--directory=[The path to the directory where the certificates are stored]:DIR:_files -/' \
+'--staging-directory=[The path to the directory where the certificates are stored]:DIR:_files -/' \
+'--staging=[The path to the directory where the certificates are stored]:DIR:_files -/' \
+'--encryption-key=[The encryption key to use for the database and session tokens]:ENCRYPTION_KEY: ' \
+'--help[Print help information]' \
+'-V[Print version information]' \
+'--version[Print version information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+":: :_discord-gating-bot_commands" \
+"*::: :->discord-gating-bot" \
+&& ret=0
+    case $state in
+    (discord-gating-bot)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:discord-gating-bot-command-$line[1]:"
+        case $line[1] in
+            (completion)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+':shell:(bash elvish fish powershell zsh)' \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+":: :_discord-gating-bot__config_commands" \
+"*::: :->config" \
+&& ret=0
+
+    case $state in
+    (config)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:discord-gating-bot-config-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+&& ret=0
+;;
+(template)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(key)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+":: :_discord-gating-bot__key_commands" \
+"*::: :->key" \
+&& ret=0
+
+    case $state in
+    (key)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:discord-gating-bot-key-command-$line[1]:"
+        case $line[1] in
+            (generate)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(discord)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+":: :_discord-gating-bot__discord_commands" \
+"*::: :->discord" \
+&& ret=0
+
+    case $state in
+    (discord)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:discord-gating-bot-discord-command-$line[1]:"
+        case $line[1] in
+            (global)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+&& ret=0
+;;
+(server)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information]' \
+'--help[Print help information]' \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+':guild-id -- The guild id:( )' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'*-v[Define the verbosity of the application, repeat for more verbosity]' \
+'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
+'(-v --verbose)-q[Supress all logging]' \
+'(-v --verbose)--quiet[Supress all logging]' \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_discord-gating-bot_commands] )) ||
+_discord-gating-bot_commands() {
+    local commands; commands=(
+'completion:Generates completion scripts for the specified shell' \
+'config:Print or edit the configuration' \
+'key:Generate an encrypted key' \
+'discord:Interact with discord directly' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'discord-gating-bot commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__completion_commands] )) ||
+_discord-gating-bot__completion_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot completion commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__config_commands] )) ||
+_discord-gating-bot__config_commands() {
+    local commands; commands=(
+'show:Print the configuration sources and merged config' \
+'template:Prints an example configuration template' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'discord-gating-bot config commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__discord_commands] )) ||
+_discord-gating-bot__discord_commands() {
+    local commands; commands=(
+'global:Register the global slash commands' \
+'server:Register the slash commands for a specific guild' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'discord-gating-bot discord commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__key__generate_commands] )) ||
+_discord-gating-bot__key__generate_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot key generate commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__discord__global_commands] )) ||
+_discord-gating-bot__discord__global_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot discord global commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__config__help_commands] )) ||
+_discord-gating-bot__config__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot config help commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__discord__help_commands] )) ||
+_discord-gating-bot__discord__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot discord help commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__help_commands] )) ||
+_discord-gating-bot__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot help commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__key__help_commands] )) ||
+_discord-gating-bot__key__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot key help commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__key_commands] )) ||
+_discord-gating-bot__key_commands() {
+    local commands; commands=(
+'generate:Generates a new key than can be used for encryption at rest and for the sessions tokens' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'discord-gating-bot key commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__discord__server_commands] )) ||
+_discord-gating-bot__discord__server_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot discord server commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__config__show_commands] )) ||
+_discord-gating-bot__config__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot config show commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__config__template_commands] )) ||
+_discord-gating-bot__config__template_commands() {
+    local commands; commands=()
+    _describe -t commands 'discord-gating-bot config template commands' commands "$@"
+}
+
+_discord-gating-bot "$@"
