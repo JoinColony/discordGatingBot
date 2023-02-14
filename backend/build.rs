@@ -7,25 +7,6 @@ use std::process;
 
 // the cli source file is included for generation purposes
 include!("src/cli.rs");
-#[cfg(feature = "build_info")]
-fn main() -> shadow_rs::SdResult<()> {
-    // tagging the git repo with the version from cargo if the tag doesn't
-    // already exist
-    if !get_git_tags().contains(&env!("CARGO_PKG_VERSION").to_string()) {
-        tag_git_repo();
-    }
-
-    //parsing the cli for generation tasks
-    let cli = Cli::command();
-    // generating the man pages in a folder in the manifest directory
-    create_man_pages(cli.clone());
-    // generating the completion functions in a folder in the manifest directory
-    create_shell_completions(cli);
-    // rendering readme
-    render_readme();
-    // adding compile time information to the compiled binary
-    shadow_rs::new()
-}
 
 #[cfg(not(feature = "build_info"))]
 fn main() {
