@@ -22,21 +22,18 @@ set edit:completion:arg-completer[discord-gating-bot] = {|@words|
             cand --config-file 'Sets a custom config file'
             cand -t 'The discord bot token'
             cand --token 'The discord bot token'
-            cand -s 'The number of guild shards'
-            cand --shards 'The number of guild shards'
             cand -h 'The address to listen on'
             cand --host 'The address to listen on'
+            cand -u 'The base url under which the server is reachable'
+            cand --url 'The base url under which the server is reachable'
             cand -p 'The port to listen on'
             cand --port 'The port to listen on'
-            cand --cert 'The path to the certificate File'
-            cand -k 'The path to the private key File'
-            cand --key 'The path to the private key File'
-            cand --acme-endpoint 'The address of the acme server to use'
-            cand --acme-port 'The port to listen on'
-            cand --directory 'The path to the directory where the certificates are stored'
-            cand --staging-directory 'The path to the directory where the certificates are stored'
-            cand --staging 'The path to the directory where the certificates are stored'
-            cand --encryption-key 'The encryption key to use for the database and session tokens'
+            cand -d 'The path where the persistent data is stored'
+            cand --directory 'The path where the persistent data is stored'
+            cand -s 'How to store data, on disk or in memory'
+            cand --storage-type 'How to store data, on disk or in memory'
+            cand -k 'The encryption_key used to encrypt the stored data'
+            cand --key 'The encryption_key used to encrypt the stored data'
             cand --help 'Print help information'
             cand -V 'Print version information'
             cand --version 'Print version information'
@@ -44,19 +41,10 @@ set edit:completion:arg-completer[discord-gating-bot] = {|@words|
             cand --verbose 'Define the verbosity of the application, repeat for more verbosity'
             cand -q 'Supress all logging'
             cand --quiet 'Supress all logging'
-            cand completion 'Generates completion scripts for the specified shell'
-            cand config 'Print or edit the configuration'
-            cand key 'Generate an encrypted key'
-            cand discord 'Interact with discord directly'
+            cand config 'Print the configuration and get a template file'
+            cand storage 'Interact with the presistent storage and encryption'
+            cand discord 'Interact with discord directly, e.g. register slash commands'
             cand help 'Print this message or the help of the given subcommand(s)'
-        }
-        &'discord-gating-bot;completion'= {
-            cand -h 'Print help information'
-            cand --help 'Print help information'
-            cand -v 'Define the verbosity of the application, repeat for more verbosity'
-            cand --verbose 'Define the verbosity of the application, repeat for more verbosity'
-            cand -q 'Supress all logging'
-            cand --quiet 'Supress all logging'
         }
         &'discord-gating-bot;config'= {
             cand -h 'Print help information'
@@ -91,17 +79,17 @@ set edit:completion:arg-completer[discord-gating-bot] = {|@words|
             cand -q 'Supress all logging'
             cand --quiet 'Supress all logging'
         }
-        &'discord-gating-bot;key'= {
+        &'discord-gating-bot;storage'= {
             cand -h 'Print help information'
             cand --help 'Print help information'
             cand -v 'Define the verbosity of the application, repeat for more verbosity'
             cand --verbose 'Define the verbosity of the application, repeat for more verbosity'
             cand -q 'Supress all logging'
             cand --quiet 'Supress all logging'
-            cand generate 'Generates a new key than can be used for encryption at rest and for the sessions tokens'
+            cand generate 'Generates a new key than can be used for encryption at rest'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
-        &'discord-gating-bot;key;generate'= {
+        &'discord-gating-bot;storage;generate'= {
             cand -h 'Print help information'
             cand --help 'Print help information'
             cand -v 'Define the verbosity of the application, repeat for more verbosity'
@@ -109,7 +97,7 @@ set edit:completion:arg-completer[discord-gating-bot] = {|@words|
             cand -q 'Supress all logging'
             cand --quiet 'Supress all logging'
         }
-        &'discord-gating-bot;key;help'= {
+        &'discord-gating-bot;storage;help'= {
             cand -v 'Define the verbosity of the application, repeat for more verbosity'
             cand --verbose 'Define the verbosity of the application, repeat for more verbosity'
             cand -q 'Supress all logging'

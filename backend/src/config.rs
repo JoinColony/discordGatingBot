@@ -1,18 +1,34 @@
-use crate::cli::CliConfig;
+//! The global configuration is loaded and set up here as a global static
+//! OnceCell
+//!
+
+use crate::cli::{CliConfig, StorageType};
 use crate::logging::LogLevel;
 use confique::{toml, toml::FormatOptions, Config, File, FileFormat, Partial};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
+/// The global configuration is loaded into a global static OnceCell
+/// and can be accessed from there by all parts of the application
 pub static CONFIG: OnceCell<GlobalConfig> = OnceCell::new();
-type PartialConf = <GlobalConfig as Config>::Partial;
-type PartialServerConf = <ServerConfig as Config>::Partial;
-type PartialAcmeConf = <AcmeConfig as Config>::Partial;
-type PartialDiscordConf = <DiscordConfig as Config>::Partial;
-type PartialEncryptionConf = <EncryptionConfig as Config>::Partial;
 
-/// The configuration is loaded in the following order:
+/// Partial configuration used to construct the final configuration
+type PartialConf = <GlobalConfig as Config>::Partial;
+/// Partial sub configuration of the server sub configuration
+/// used as part of the enclosing partial configuration
+type PartialServerConf = <ServerConfig as Config>::Partial;
+/// Partial sub configuration of the storage sub configuration
+/// used as part of the enclosing partial configuration
+type PartialStorageConf = <StorageConfig as Config>::Partial;
+/// Partial sub configuration of the discord sub configuration
+/// used as part of the enclosing partial configuration
+type PartialDiscordConf = <DiscordConfig as Config>::Partial;
+
+/// Merges all configuration sources and initializes the global configuration
+///
+/// The sources are loaded in the following order, later sources overwrite
+/// earlier ones:
 /// 1. Default values
 /// 2. Config file
 /// 3. Environment variables
@@ -28,6 +44,7 @@ pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Prints the different sources and finally merged configuration to stdout
 pub fn print_config(raw_cli_cfg: &CliConfig) {
     let (cli_cfg, env, file, default, config_file) = get_config_hirarchy(&raw_cli_cfg);
     let default_config = GlobalConfig::from_partial(default).unwrap();
@@ -62,6 +79,8 @@ pub fn print_config(raw_cli_cfg: &CliConfig) {
     println!("\n\nMerged config: {:#?}", cfg);
 }
 
+/// Gets all partial configurations from the different sources.
+/// It also does the special handling of verbose and quiet flags
 fn get_config_hirarchy(
     raw_cli_cfg: &CliConfig,
 ) -> (PartialConf, PartialConf, PartialConf, PartialConf, PathBuf) {
@@ -77,21 +96,16 @@ fn get_config_hirarchy(
         },
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
-            shards: raw_cli_cfg.discord.shards.clone(),
         },
         server: PartialServerConf {
+            url: raw_cli_cfg.server.url.clone(),
             host: raw_cli_cfg.server.host.clone(),
             port: raw_cli_cfg.server.port,
-            cert: raw_cli_cfg.server.cert.clone(),
-            key: raw_cli_cfg.server.key.clone(),
         },
-        acme: PartialAcmeConf {
-            acme_endpoint: raw_cli_cfg.acme.acme_endpoint.clone(),
-            acme_port: raw_cli_cfg.acme.acme_port,
-            staging: raw_cli_cfg.acme.staging,
-        },
-        encryption: PartialEncryptionConf {
-            key: raw_cli_cfg.encryption.encryption_key.clone(),
+        storage: PartialStorageConf {
+            directory: raw_cli_cfg.storage.directory.clone(),
+            storage_type: raw_cli_cfg.storage.storage_type.clone(),
+            key: raw_cli_cfg.storage.key.clone(),
         },
     };
     let env = PartialConf::from_env().unwrap();
@@ -110,6 +124,8 @@ fn get_config_hirarchy(
     (cli_cfg, env, file, default, config_file)
 }
 
+/// Prints a configuration file template to stdout, that can be used as a
+/// starting point for a custom configuration file
 pub fn print_template() {
     println!(
         "{}",
@@ -117,11 +133,9 @@ pub fn print_template() {
     );
 }
 
-/// The main configuration struct, it contains all the configuration options
-/// that can be set via the config file, environment variables or cli flags
-/// and is used to configure the application
-///
-#[derive(Clone, Config, Debug, Serialize, Deserialize)]
+/// The main configuration struct used by the entire application
+/// it is constructed from the partial configurations from different sources
+#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
 pub struct GlobalConfig {
     #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
     pub config_file: PathBuf,
@@ -133,52 +147,41 @@ pub struct GlobalConfig {
     #[config(nested)]
     pub server: ServerConfig,
     #[config(nested)]
-    pub acme: AcmeConfig,
-    #[config(nested)]
-    pub encryption: EncryptionConfig,
+    pub storage: StorageConfig,
 }
 
-#[derive(Clone, Config, Debug, Serialize, Deserialize)]
+/// The sub configuration for the http server
+#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// The base url under which the server is reachable
+    #[config(env = "CLNY_URL", default = "http://localhost")]
+    pub url: String,
     /// The address to listen on
     #[config(env = "CLNY_HOST", default = "localhost")]
     pub host: String,
     /// The port to listen on
     #[config(env = "CLNY_PORT", default = 8080)]
     pub port: u16,
-    /// The path to the certificate File
-    #[config(env = "CLNY_CERT", default = "./cert.pem")]
-    pub cert: PathBuf,
-    /// The path to the private key File
-    #[config(env = "CLNY_KEY", default = "./key.pem")]
-    pub key: PathBuf,
 }
 
-#[derive(Clone, Config, Debug, Serialize, Deserialize)]
-pub struct AcmeConfig {
-    /// The address of the acme server to use
-    #[config(env = "CLNY_ACME_ENDPOINT", default = "acme-v02.api.letsencrypt.org")]
-    pub acme_endpoint: String,
-    /// The port to listen on
-    #[config(env = "CLNY_ACME_PORT", default = 8081)]
-    pub acme_port: u16,
-    /// The path to the directory where the certificates are stored
-    #[config(env = "CLNY_STAGING", default = true)]
-    pub staging: bool,
+/// The sub configuration for storage and encryption
+#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
+pub struct StorageConfig {
+    /// The path where the persistent data is stored
+    #[config(env = "CLNY_STORAGE_DIRECTORY", default = "./data")]
+    pub directory: PathBuf,
+    /// How to store data, on disk or in memory
+    #[config(env = "CLNY_STORAGE_TYPE", default = "Encrypted")]
+    pub storage_type: StorageType,
+    /// The encryption_key used to encrypt the stored data
+    #[config(env = "CLNY_ENCRYPTION_KEY", default = "")]
+    pub key: String,
 }
 
-#[derive(Clone, Config, Debug, Serialize, Deserialize)]
+/// The sub configuration for discord interaction
+#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
 pub struct DiscordConfig {
     /// The discord bot token
     #[config(env = "CLNY_DISCORD_TOKEN", default = "")]
     pub token: String,
-    #[config(env = "CLNY_DISCORD_SHARDS", default = 1)]
-    pub shards: u8,
-}
-
-#[derive(Clone, Config, Debug, Serialize, Deserialize)]
-pub struct EncryptionConfig {
-    /// The discord bot token
-    #[config(env = "CLNY_ENCRYPTION_KEY", default = "")]
-    pub key: String,
 }

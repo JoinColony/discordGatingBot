@@ -12,9 +12,6 @@ _discord-gating-bot() {
             "$1")
                 cmd="discord__gating__bot"
                 ;;
-            completion)
-                cmd+="__completion"
-                ;;
             config)
                 cmd+="__config"
                 ;;
@@ -30,14 +27,14 @@ _discord-gating-bot() {
             help)
                 cmd+="__help"
                 ;;
-            key)
-                cmd+="__key"
-                ;;
             server)
                 cmd+="__server"
                 ;;
             show)
                 cmd+="__show"
+                ;;
+            storage)
+                cmd+="__storage"
                 ;;
             template)
                 cmd+="__template"
@@ -49,7 +46,7 @@ _discord-gating-bot() {
 
     case "${cmd}" in
         discord__gating__bot)
-            opts="-V -c -v -q -t -s -h -p -k --help --version --config-file --verbose --quiet --token --shards --host --port --cert --key --acme-endpoint --acme-port --directory --staging-directory --staging --encryption-key completion config key discord help"
+            opts="-V -c -v -q -t -h -u -p -d -s -k --help --version --config-file --verbose --quiet --token --host --url --port --directory --storage-type --key config storage discord help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -71,19 +68,19 @@ _discord-gating-bot() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --shards)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -s)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
                 --host)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 -h)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -u)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -95,7 +92,19 @@ _discord-gating-bot() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --cert)
+                --directory)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -d)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --storage-type)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -s)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -107,44 +116,6 @@ _discord-gating-bot() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --acme-endpoint)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --acme-port)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --staging-directory)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --staging)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --encryption-key)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        discord__gating__bot__completion)
-            opts="-h -v -q --help --verbose --quiet bash elvish fish powershell zsh"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
@@ -278,7 +249,7 @@ _discord-gating-bot() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        discord__gating__bot__key)
+        discord__gating__bot__storage)
             opts="-h -v -q --help --verbose --quiet generate help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -292,7 +263,7 @@ _discord-gating-bot() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        discord__gating__bot__key__generate)
+        discord__gating__bot__storage__generate)
             opts="-h -v -q --help --verbose --quiet"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -306,7 +277,7 @@ _discord-gating-bot() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        discord__gating__bot__key__help)
+        discord__gating__bot__storage__help)
             opts="-v -q --verbose --quiet <SUBCOMMAND>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

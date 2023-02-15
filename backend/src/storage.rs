@@ -1,3 +1,7 @@
+//! Defines the storage trait for persisting data and holds different
+//! implementations of it
+//!
+
 use crate::config::CONFIG;
 use crate::controller::Gate;
 use sled;
@@ -51,8 +55,8 @@ pub struct SledUnencryptedStorage {
 
 impl Storage for SledUnencryptedStorage {
     fn new() -> Self {
-        // let db_path = CONFIG.get_str("db_path").unwrap();
-        let db = sled::open("sled.db").unwrap();
+        let db_path = &CONFIG.wait().storage.directory;
+        let db = sled::open(db_path).unwrap();
         SledUnencryptedStorage { db }
     }
 

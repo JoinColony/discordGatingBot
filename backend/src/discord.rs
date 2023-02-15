@@ -1,3 +1,6 @@
+//! Handles the communication with the Discord API.
+//!
+
 use crate::config::CONFIG;
 use crate::controller::{self, CheckResponse, CONTROLLER_CHANNEL};
 use serenity::async_trait;

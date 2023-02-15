@@ -12,8 +12,11 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 
+/// The worker guard for the tracing appender to keep it from beeing dropped
 static GUARD: OnceCell<WorkerGuard> = OnceCell::new();
 
+/// The logging module sets up the logging system as specified in
+/// configuration.
 pub fn setup_logging() {
     if let Err(err) = tracing_log::LogTracer::init() {
         println!("Failed to initialize log tracer: {}", err);
@@ -47,6 +50,8 @@ pub fn setup_logging() {
     trace!("Logging initialized");
 }
 
+
+/// The different log levels, from quiet = 0 to trace = 5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogLevel {
     Off = 0,
@@ -55,6 +60,12 @@ pub enum LogLevel {
     Info = 3,
     Debug = 4,
     Trace = 5,
+}
+
+impl Default for LogLevel {
+    fn default() -> Self {
+        LogLevel::Error
+    }
 }
 
 impl std::fmt::Display for LogLevel {

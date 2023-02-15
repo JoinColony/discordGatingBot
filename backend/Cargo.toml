@@ -9,7 +9,7 @@ authors =["Hans Mündelein <hans@muendelein.me>", "Christian Maniewski <code@chm
 categories = ["blockchain", "bot", "discord", "chat"]
 
 [features]
-default = ["completion"]
+default = []
 completion = ["dep:clap_complete"]
 
 [dependencies]

@@ -12,6 +12,9 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// The long description used for the help subcommand and man page.
+/// It is sourced from the cargo readme template, removing all template
+/// expression from the file.
 static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
     include_str!("../README.tpl")
         .lines()
@@ -31,12 +34,10 @@ static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
     long_about = LONG_DESCRIPTION.as_str(),
     arg_required_else_help = false
 )]
+
 pub struct Cli {
-    #[cfg(feature = "build_info")]
-    /// Print build information
-    #[clap(long)]
-    pub build_info: bool,
-    /// The main configuration params live here, some of them can be set as global flags
+    /// The main configuration params live here and can be set with command line
+    /// flags
     #[clap(flatten)]
     pub cfg: CliConfig,
     /// The subcommand to run
@@ -54,16 +55,18 @@ pub enum Commands {
         #[clap(value_parser, action)]
         shell: Shell,
     },
-    /// Print or edit the configuration
+    /// Print the configuration and get a template file
     #[clap(subcommand)]
     Config(ConfigCmd),
-    /// Generate an encrypted key
+    /// Interact with the presistent storage and encryption
     #[clap(subcommand)]
-    Key(CryptCmd),
-    /// Interact with discord directly
+    Storage(StorageCmd),
+    /// Interact with discord directly, e.g. register slash commands
     #[clap(subcommand)]
     Discord(DiscordCmd),
 }
+
+/// Represents the config sub command, used to print the current config or get a template
 #[derive(Subcommand)]
 #[clap()]
 pub enum ConfigCmd {
@@ -73,6 +76,7 @@ pub enum ConfigCmd {
     Template,
 }
 
+/// Represents the discord sub command, used to register slash commands
 #[derive(Subcommand)]
 #[clap()]
 pub enum DiscordCmd {
@@ -86,18 +90,20 @@ pub enum DiscordCmd {
     },
 }
 
+/// Represents the storage sub command, used to interact with the storage_type
+/// and encryption
 #[derive(Subcommand)]
 #[clap()]
-pub enum CryptCmd {
-    /// Generates a new key than can be used for encryption at rest and for
-    /// the sessions tokens
+pub enum StorageCmd {
+    /// Generates a new key than can be used for encryption at rest
     Generate,
 }
 
-/// This structs contains the global configuration for the application
-/// it is merged from the config file, the environment and the command line
-/// arguments
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+/// This structs contains the configuration for the application from command
+/// line flags that take precedence over the config files and environment
+/// variables. Most of the fields are optional and will be merged with other
+/// sources values in the config module
+#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
 #[clap()]
 pub struct CliConfig {
     /// Sets a custom config file
@@ -114,63 +120,77 @@ pub struct CliConfig {
     #[clap(flatten)]
     pub server: CliServerConfig,
     #[clap(flatten)]
-    pub acme: CliAcmeConfig,
-    #[clap(flatten)]
-    pub encryption: CliEncryptionConfig,
+    pub storage: CliStorageConfig,
 }
 
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
-#[clap()]
-pub struct CliEncryptionConfig {
-    /// The encryption key to use for the database and session tokens
-    #[clap(long = "encryption-key")]
-    pub encryption_key: Option<String>,
-}
-
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+/// This structs contains the sub configuration for the discord client options.
+/// Just for structuring the cli flags
+#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
 #[clap()]
 pub struct CliDiscordConfig {
     /// The discord bot token
     #[clap(short, long)]
     pub token: Option<String>,
-    /// The number of guild shards
-    #[clap(short, long)]
-    pub shards: Option<u8>,
 }
 
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+/// This structs contains the sub configuration for the http server options.
+/// Just for structuring the cli flags
+#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
 #[clap()]
 pub struct CliServerConfig {
     /// The address to listen on
     #[clap(short, long)]
     pub host: Option<String>,
+    /// The base url under which the server is reachable
+    #[clap(short, long)]
+    pub url: Option<String>,
     /// The port to listen on
     #[clap(short, long)]
     pub port: Option<u16>,
-    /// The path to the certificate File
-    #[clap( long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-    pub cert: Option<PathBuf>,
-    /// The path to the private key File
-    #[clap(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-    pub key: Option<PathBuf>,
 }
 
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+/// This structs contains the sub configuration for the storage options.
+/// Just for structuring the cli flags
+#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
 #[clap()]
-pub struct CliAcmeConfig {
-    /// The address of the acme server to use
-    #[clap(long)]
-    pub acme_endpoint: Option<String>,
-    /// The port to listen on
-    #[clap(long)]
-    pub acme_port: Option<u16>,
-    #[clap( long, value_name = "DIR", value_hint = ValueHint::DirPath)]
-    /// The path to the directory where the certificates are stored
+pub struct CliStorageConfig {
+    /// The path where the persistent data is stored
+    #[clap(short, long)]
     pub directory: Option<PathBuf>,
-    /// The path to the directory where the certificates are stored
-    #[clap( long, value_name = "DIR", value_hint = ValueHint::DirPath)]
-    pub staging_directory: Option<PathBuf>,
-    /// The path to the directory where the certificates are stored
-    #[clap(long, value_name = "DIR", value_hint = ValueHint::DirPath)]
-    pub staging: Option<bool>,
+    /// How to store data, on disk or in memory
+    #[clap(short, long)]
+    pub storage_type: Option<StorageType>,
+    /// The encryption_key used to encrypt the stored data
+    #[clap(short, long)]
+    pub key: Option<String>,
+}
+
+/// The storage type enum, used to select the storage type
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum StorageType {
+    /// Store data peristent and encrypted on disk, this is the default
+    Encrypted,
+    /// Store data peristent but unencrypted on disk
+    Unencrypted,
+    /// Store data in memory, this is not persistent
+    InMemory,
+}
+
+impl Default for StorageType {
+    fn default() -> Self {
+        Self::Encrypted
+    }
+}
+
+impl std::str::FromStr for StorageType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Encrypted" => Ok(StorageType::Encrypted),
+            "Unencrypted" => Ok(StorageType::Unencrypted),
+            "InMemory" => Ok(StorageType::InMemory),
+            _ => Err(format!("Invalid storage type: {}", s)),
+        }
+    }
 }

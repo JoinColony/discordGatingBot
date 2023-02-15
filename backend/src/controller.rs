@@ -1,7 +1,9 @@
-use crate::{
-    config::CONFIG,
-    storage::{self, InMemoryStorage, Storage},
-};
+//! This is the main business logic of the application. It registers a global
+//! static channel on which other parts of the application can communicate with
+//! the controller.
+//!
+
+use crate::{config::CONFIG, storage::Storage};
 use anyhow::{bail, Result};
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
@@ -18,9 +20,16 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tracing::error;
 
+/// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
+/// A session encryption key which is used to encrypt the session used for
+/// user registration. It is generated once at startup and never changes as
+/// long as the application is running.
 static SESSION_KEY: OnceCell<Vec<u8>> = OnceCell::new();
 
+/// The message type is the main way for other parts of the application token
+/// communicate with the controller. It is an enum with variants for each
+/// possible message.
 #[derive(Debug)]
 pub enum Message {
     Gate {
@@ -41,6 +50,8 @@ pub enum Message {
     },
 }
 
+/// The response to a check message, sent back via the oneshot channel in the
+/// inbound message.
 #[derive(Debug)]
 pub enum CheckResponse {
     NoGates,
@@ -48,19 +59,28 @@ pub enum CheckResponse {
     Register(String),
 }
 
+/// The response to a register message, sent back via the oneshot channel in the
+/// inbound message.
 #[derive(Debug)]
 pub enum RegisterResponse {
     AlreadyRegistered,
     Success,
 }
 
+/// Represents a gate for a discord role issues by the /gate slash command.
+/// This is stored in the database for each discord server.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Gate {
+    /// The colony address in which the reputation should be looked up
     colony: String,
+    /// The reputation amount required to be granted the role
     reputation: u32,
+    /// The role to be granted
     role_id: u64,
 }
 
+/// The main business logic instance. It holds a storage instance and a channel
+/// for communication with other parts of the application.
 #[derive(Debug)]
 pub struct Controller<S: Storage> {
     storage: S,
@@ -68,7 +88,7 @@ pub struct Controller<S: Storage> {
     message_rx: mpsc::Receiver<Message>,
 }
 
-impl<S: Storage> Controller<S> {
+impl<S: Storage + Send + 'static> Controller<S> {
     pub fn new() -> Self {
         let (message_tx, message_rx) = mpsc::channel(1024);
 
@@ -79,12 +99,14 @@ impl<S: Storage> Controller<S> {
         }
     }
 
+    /// Starts the controller and sets the global static channel for other
+    /// parts of the application to communicate with it.
     pub async fn init() {
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);
         SESSION_KEY
             .set(key.to_vec())
             .expect("Failed to set session key");
-        let mut controller: Controller<storage::SledUnencryptedStorage> = Controller::new();
+        let mut controller: Controller<S> = Controller::new();
         CONTROLLER_CHANNEL
             .set(controller.message_tx.clone())
             .expect("Failed to set controller channel");
@@ -130,11 +152,10 @@ impl<S: Storage> Controller<S> {
                                 };
                             }
                         } else {
-                            let host = CONFIG.wait().server.host.clone();
+                            let url = CONFIG.wait().server.url.clone();
                             let port = CONFIG.wait().server.port;
                             let session = Session::new(user_id);
-                            let url =
-                                format!("http://{}:{}/session/{}", host, port, session.encode());
+                            let url = format!("{}:{}/session/{}", url, port, session.encode());
                             if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
                                 error!("Failed to send CheckResponse::Register: {:?}", why);
                             };
@@ -166,6 +187,8 @@ impl<S: Storage> Controller<S> {
     }
 }
 
+/// This is used to gather the fraction of total reputation a wallet has in
+/// a domain in a colony
 fn check_reputation(colony: &str, wallet: &str) -> u32 {
     match (colony, wallet) {
         ("colony1", "wallet1") => 10,
@@ -176,6 +199,10 @@ fn check_reputation(colony: &str, wallet: &str) -> u32 {
     }
 }
 
+/// This represents a session for a user that has not yet registered their
+/// and is used to generate a url for the user to register their wallet.
+/// The session is encoded as a nonce and string separated by a dot.
+/// The string is an encrypted version of the user information
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Session {
     pub user_id: u64,
@@ -253,45 +280,19 @@ impl FromStr for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{
-        CliAcmeConfig, CliConfig, CliDiscordConfig, CliEncryptionConfig, CliServerConfig,
-    };
+    use crate::cli::CliConfig;
     use crate::config::setup_config;
+    use crate::storage;
 
-    fn setup() {
-        let cfg = CliConfig {
-            config_file: None,
-            quiet: false,
-            verbose: 0,
-            acme: CliAcmeConfig {
-                staging: None,
-                acme_port: None,
-                directory: None,
-                acme_endpoint: None,
-                staging_directory: None,
-            },
-            discord: CliDiscordConfig {
-                token: None,
-                shards: None,
-            },
-            encryption: CliEncryptionConfig {
-                encryption_key: Some(
-                    "fc66bc533d6574a153e85461de7894355b91ab0db334902ef274a943eab7affe".to_string(),
-                ),
-            },
-            server: CliServerConfig {
-                host: None,
-                port: None,
-                key: None,
-                cert: None,
-            },
-        };
-        let _ = setup_config(&cfg);
+    async fn setup() {
+        let cfg = CliConfig::default();
+        setup_config(&cfg).unwrap();
+        Controller::<storage::InMemoryStorage>::init().await;
     }
 
-    #[test]
-    fn test_session() {
-        setup();
+    #[tokio::test]
+    async fn test_session() {
+        setup().await;
         let session = Session::new(123);
         let encoded = session.encode();
         let decoded = Session::from_str(&encoded).unwrap();

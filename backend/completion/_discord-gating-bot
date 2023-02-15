@@ -19,21 +19,18 @@ _discord-gating-bot() {
 '--config-file=[Sets a custom config file]:FILE:_files' \
 '-t+[The discord bot token]:TOKEN: ' \
 '--token=[The discord bot token]:TOKEN: ' \
-'-s+[The number of guild shards]:SHARDS: ' \
-'--shards=[The number of guild shards]:SHARDS: ' \
 '-h+[The address to listen on]:HOST: ' \
 '--host=[The address to listen on]:HOST: ' \
+'-u+[The base url under which the server is reachable]:URL: ' \
+'--url=[The base url under which the server is reachable]:URL: ' \
 '-p+[The port to listen on]:PORT: ' \
 '--port=[The port to listen on]:PORT: ' \
-'--cert=[The path to the certificate File]:FILE:_files' \
-'-k+[The path to the private key File]:FILE:_files' \
-'--key=[The path to the private key File]:FILE:_files' \
-'--acme-endpoint=[The address of the acme server to use]:ACME_ENDPOINT: ' \
-'--acme-port=[The port to listen on]:ACME_PORT: ' \
-'--directory=[The path to the directory where the certificates are stored]:DIR:_files -/' \
-'--staging-directory=[The path to the directory where the certificates are stored]:DIR:_files -/' \
-'--staging=[The path to the directory where the certificates are stored]:DIR:_files -/' \
-'--encryption-key=[The encryption key to use for the database and session tokens]:ENCRYPTION_KEY: ' \
+'-d+[The path where the persistent data is stored]:DIRECTORY: ' \
+'--directory=[The path where the persistent data is stored]:DIRECTORY: ' \
+'-s+[How to store data, on disk or in memory]:STORAGE_TYPE: ' \
+'--storage-type=[How to store data, on disk or in memory]:STORAGE_TYPE: ' \
+'-k+[The encryption_key used to encrypt the stored data]:KEY: ' \
+'--key=[The encryption_key used to encrypt the stored data]:KEY: ' \
 '--help[Print help information]' \
 '-V[Print version information]' \
 '--version[Print version information]' \
@@ -50,18 +47,7 @@ _discord-gating-bot() {
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:discord-gating-bot-command-$line[1]:"
         case $line[1] in
-            (completion)
-_arguments "${_arguments_options[@]}" \
-'-h[Print help information]' \
-'--help[Print help information]' \
-'*-v[Define the verbosity of the application, repeat for more verbosity]' \
-'*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
-'(-v --verbose)-q[Supress all logging]' \
-'(-v --verbose)--quiet[Supress all logging]' \
-':shell:(bash elvish fish powershell zsh)' \
-&& ret=0
-;;
-(config)
+            (config)
 _arguments "${_arguments_options[@]}" \
 '-h[Print help information]' \
 '--help[Print help information]' \
@@ -112,7 +98,7 @@ _arguments "${_arguments_options[@]}" \
     ;;
 esac
 ;;
-(key)
+(storage)
 _arguments "${_arguments_options[@]}" \
 '-h[Print help information]' \
 '--help[Print help information]' \
@@ -120,15 +106,15 @@ _arguments "${_arguments_options[@]}" \
 '*--verbose[Define the verbosity of the application, repeat for more verbosity]' \
 '(-v --verbose)-q[Supress all logging]' \
 '(-v --verbose)--quiet[Supress all logging]' \
-":: :_discord-gating-bot__key_commands" \
-"*::: :->key" \
+":: :_discord-gating-bot__storage_commands" \
+"*::: :->storage" \
 && ret=0
 
     case $state in
-    (key)
+    (storage)
         words=($line[1] "${words[@]}")
         (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:discord-gating-bot-key-command-$line[1]:"
+        curcontext="${curcontext%:*:*}:discord-gating-bot-storage-command-$line[1]:"
         case $line[1] in
             (generate)
 _arguments "${_arguments_options[@]}" \
@@ -222,18 +208,12 @@ esac
 (( $+functions[_discord-gating-bot_commands] )) ||
 _discord-gating-bot_commands() {
     local commands; commands=(
-'completion:Generates completion scripts for the specified shell' \
-'config:Print or edit the configuration' \
-'key:Generate an encrypted key' \
-'discord:Interact with discord directly' \
+'config:Print the configuration and get a template file' \
+'storage:Interact with the presistent storage and encryption' \
+'discord:Interact with discord directly, e.g. register slash commands' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'discord-gating-bot commands' commands "$@"
-}
-(( $+functions[_discord-gating-bot__completion_commands] )) ||
-_discord-gating-bot__completion_commands() {
-    local commands; commands=()
-    _describe -t commands 'discord-gating-bot completion commands' commands "$@"
 }
 (( $+functions[_discord-gating-bot__config_commands] )) ||
 _discord-gating-bot__config_commands() {
@@ -253,10 +233,10 @@ _discord-gating-bot__discord_commands() {
     )
     _describe -t commands 'discord-gating-bot discord commands' commands "$@"
 }
-(( $+functions[_discord-gating-bot__key__generate_commands] )) ||
-_discord-gating-bot__key__generate_commands() {
+(( $+functions[_discord-gating-bot__storage__generate_commands] )) ||
+_discord-gating-bot__storage__generate_commands() {
     local commands; commands=()
-    _describe -t commands 'discord-gating-bot key generate commands' commands "$@"
+    _describe -t commands 'discord-gating-bot storage generate commands' commands "$@"
 }
 (( $+functions[_discord-gating-bot__discord__global_commands] )) ||
 _discord-gating-bot__discord__global_commands() {
@@ -278,18 +258,10 @@ _discord-gating-bot__help_commands() {
     local commands; commands=()
     _describe -t commands 'discord-gating-bot help commands' commands "$@"
 }
-(( $+functions[_discord-gating-bot__key__help_commands] )) ||
-_discord-gating-bot__key__help_commands() {
+(( $+functions[_discord-gating-bot__storage__help_commands] )) ||
+_discord-gating-bot__storage__help_commands() {
     local commands; commands=()
-    _describe -t commands 'discord-gating-bot key help commands' commands "$@"
-}
-(( $+functions[_discord-gating-bot__key_commands] )) ||
-_discord-gating-bot__key_commands() {
-    local commands; commands=(
-'generate:Generates a new key than can be used for encryption at rest and for the sessions tokens' \
-'help:Print this message or the help of the given subcommand(s)' \
-    )
-    _describe -t commands 'discord-gating-bot key commands' commands "$@"
+    _describe -t commands 'discord-gating-bot storage help commands' commands "$@"
 }
 (( $+functions[_discord-gating-bot__discord__server_commands] )) ||
 _discord-gating-bot__discord__server_commands() {
@@ -300,6 +272,14 @@ _discord-gating-bot__discord__server_commands() {
 _discord-gating-bot__config__show_commands() {
     local commands; commands=()
     _describe -t commands 'discord-gating-bot config show commands' commands "$@"
+}
+(( $+functions[_discord-gating-bot__storage_commands] )) ||
+_discord-gating-bot__storage_commands() {
+    local commands; commands=(
+'generate:Generates a new key than can be used for encryption at rest' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'discord-gating-bot storage commands' commands "$@"
 }
 (( $+functions[_discord-gating-bot__config__template_commands] )) ||
 _discord-gating-bot__config__template_commands() {

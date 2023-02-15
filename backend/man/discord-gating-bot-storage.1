@@ -1,0 +1,20 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH storage 1  "storage " 
+.SH NAME
+storage \- Interact with the presistent storage and encryption
+.SH SYNOPSIS
+\fBstorage\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Interact with the presistent storage and encryption
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help information
+.SH SUBCOMMANDS
+.TP
+storage\-generate(1)
+Generates a new key than can be used for encryption at rest
+.TP
+storage\-help(1)
+Print this message or the help of the given subcommand(s)

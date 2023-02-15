@@ -25,21 +25,18 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--config-file', 'config-file', [CompletionResultType]::ParameterName, 'Sets a custom config file')
             [CompletionResult]::new('-t', 't', [CompletionResultType]::ParameterName, 'The discord bot token')
             [CompletionResult]::new('--token', 'token', [CompletionResultType]::ParameterName, 'The discord bot token')
-            [CompletionResult]::new('-s', 's', [CompletionResultType]::ParameterName, 'The number of guild shards')
-            [CompletionResult]::new('--shards', 'shards', [CompletionResultType]::ParameterName, 'The number of guild shards')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'The address to listen on')
             [CompletionResult]::new('--host', 'host', [CompletionResultType]::ParameterName, 'The address to listen on')
+            [CompletionResult]::new('-u', 'u', [CompletionResultType]::ParameterName, 'The base url under which the server is reachable')
+            [CompletionResult]::new('--url', 'url', [CompletionResultType]::ParameterName, 'The base url under which the server is reachable')
             [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The port to listen on')
             [CompletionResult]::new('--port', 'port', [CompletionResultType]::ParameterName, 'The port to listen on')
-            [CompletionResult]::new('--cert', 'cert', [CompletionResultType]::ParameterName, 'The path to the certificate File')
-            [CompletionResult]::new('-k', 'k', [CompletionResultType]::ParameterName, 'The path to the private key File')
-            [CompletionResult]::new('--key', 'key', [CompletionResultType]::ParameterName, 'The path to the private key File')
-            [CompletionResult]::new('--acme-endpoint', 'acme-endpoint', [CompletionResultType]::ParameterName, 'The address of the acme server to use')
-            [CompletionResult]::new('--acme-port', 'acme-port', [CompletionResultType]::ParameterName, 'The port to listen on')
-            [CompletionResult]::new('--directory', 'directory', [CompletionResultType]::ParameterName, 'The path to the directory where the certificates are stored')
-            [CompletionResult]::new('--staging-directory', 'staging-directory', [CompletionResultType]::ParameterName, 'The path to the directory where the certificates are stored')
-            [CompletionResult]::new('--staging', 'staging', [CompletionResultType]::ParameterName, 'The path to the directory where the certificates are stored')
-            [CompletionResult]::new('--encryption-key', 'encryption-key', [CompletionResultType]::ParameterName, 'The encryption key to use for the database and session tokens')
+            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'The path where the persistent data is stored')
+            [CompletionResult]::new('--directory', 'directory', [CompletionResultType]::ParameterName, 'The path where the persistent data is stored')
+            [CompletionResult]::new('-s', 's', [CompletionResultType]::ParameterName, 'How to store data, on disk or in memory')
+            [CompletionResult]::new('--storage-type', 'storage-type', [CompletionResultType]::ParameterName, 'How to store data, on disk or in memory')
+            [CompletionResult]::new('-k', 'k', [CompletionResultType]::ParameterName, 'The encryption_key used to encrypt the stored data')
+            [CompletionResult]::new('--key', 'key', [CompletionResultType]::ParameterName, 'The encryption_key used to encrypt the stored data')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-V', 'V', [CompletionResultType]::ParameterName, 'Print version information')
             [CompletionResult]::new('--version', 'version', [CompletionResultType]::ParameterName, 'Print version information')
@@ -47,20 +44,10 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
-            [CompletionResult]::new('completion', 'completion', [CompletionResultType]::ParameterValue, 'Generates completion scripts for the specified shell')
-            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'Print or edit the configuration')
-            [CompletionResult]::new('key', 'key', [CompletionResultType]::ParameterValue, 'Generate an encrypted key')
-            [CompletionResult]::new('discord', 'discord', [CompletionResultType]::ParameterValue, 'Interact with discord directly')
+            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'Print the configuration and get a template file')
+            [CompletionResult]::new('storage', 'storage', [CompletionResultType]::ParameterValue, 'Interact with the presistent storage and encryption')
+            [CompletionResult]::new('discord', 'discord', [CompletionResultType]::ParameterValue, 'Interact with discord directly, e.g. register slash commands')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
-            break
-        }
-        'discord-gating-bot;completion' {
-            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
-            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
-            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
-            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
-            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
-            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
             break
         }
         'discord-gating-bot;config' {
@@ -100,18 +87,18 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
             break
         }
-        'discord-gating-bot;key' {
+        'discord-gating-bot;storage' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
-            [CompletionResult]::new('generate', 'generate', [CompletionResultType]::ParameterValue, 'Generates a new key than can be used for encryption at rest and for the sessions tokens')
+            [CompletionResult]::new('generate', 'generate', [CompletionResultType]::ParameterValue, 'Generates a new key than can be used for encryption at rest')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
-        'discord-gating-bot;key;generate' {
+        'discord-gating-bot;storage;generate' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
@@ -120,7 +107,7 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
             break
         }
-        'discord-gating-bot;key;help' {
+        'discord-gating-bot;storage;help' {
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')

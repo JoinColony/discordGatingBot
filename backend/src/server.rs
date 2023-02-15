@@ -1,3 +1,7 @@
+//! Starts the server that handles the http requests coming from the urls
+//! sent to discord.
+//!
+
 use crate::config::CONFIG;
 use crate::controller::{Message, RegisterResponse, Session, CONTROLLER_CHANNEL};
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};

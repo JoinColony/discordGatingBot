@@ -4,28 +4,15 @@
 .SH NAME
 discord\-gating\-bot \- A discord bot that can grant discord roles on a server based on reputation in a specific colony
 .SH SYNOPSIS
-\fBdiscord\-gating\-bot\fR [\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fB\-c\fR|\fB\-\-config\-file\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-t\fR|\fB\-\-token\fR] [\fB\-s\fR|\fB\-\-shards\fR] [\fB\-h\fR|\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-cert\fR] [\fB\-k\fR|\fB\-\-key\fR] [\fB\-\-acme\-endpoint\fR] [\fB\-\-acme\-port\fR] [\fB\-\-directory\fR] [\fB\-\-staging\-directory\fR] [\fB\-\-staging\fR] [\fB\-\-encryption\-key\fR] [\fIsubcommands\fR]
+\fBdiscord\-gating\-bot\fR [\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fB\-c\fR|\fB\-\-config\-file\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-t\fR|\fB\-\-token\fR] [\fB\-h\fR|\fB\-\-host\fR] [\fB\-u\fR|\fB\-\-url\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-d\fR|\fB\-\-directory\fR] [\fB\-s\fR|\fB\-\-storage\-type\fR] [\fB\-k\fR|\fB\-\-key\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 .PP
-Running the bot binary without any sub command will start an http server,
-connect to discord and listen for commands. 
+Running the bot without any sub command will start an http server,
+connect to discord and listen for commands, all with the default configuration.
 .PP
-By default the bot will store all data encrypted in an embedded database. 
-Most of the action will happens via the slash commands from discord and the 
-following redirects to the http server. 
-.PP
-The bot can be configured via a config file, environment variables or 
-command line arguments. 
-.PP
-Other sub commands are used offline to help with certain
-operations, e.g. key generation and most importantly the slash command 
-registration. 
-.PP
-When running the bot for the first time, no slash commands are 
-registered for the discord application, which makes the bot pretty useless.
-With the `register` sub command, the bot will register all slash commands either
-globally or for a specific guild. Global registration may take some time to 
-propagate, while guild registration is instant. 
+Running the bot for the first time, you probably want to generate an encryption
+key and register the discord slash commands with the `storage` and `discord`
+subcommands.
 .PP
 .PP
 .SH OPTIONS
@@ -48,51 +35,33 @@ Supress all logging
 \fB\-t\fR, \fB\-\-token\fR=\fITOKEN\fR
 The discord bot token
 .TP
-\fB\-s\fR, \fB\-\-shards\fR=\fISHARDS\fR
-The number of guild shards
-.TP
 \fB\-h\fR, \fB\-\-host\fR=\fIHOST\fR
 The address to listen on
+.TP
+\fB\-u\fR, \fB\-\-url\fR=\fIURL\fR
+The base url under which the server is reachable
 .TP
 \fB\-p\fR, \fB\-\-port\fR=\fIPORT\fR
 The port to listen on
 .TP
-\fB\-\-cert\fR=\fIFILE\fR
-The path to the certificate File
+\fB\-d\fR, \fB\-\-directory\fR=\fIDIRECTORY\fR
+The path where the persistent data is stored
 .TP
-\fB\-k\fR, \fB\-\-key\fR=\fIFILE\fR
-The path to the private key File
+\fB\-s\fR, \fB\-\-storage\-type\fR=\fISTORAGE_TYPE\fR
+How to store data, on disk or in memory
 .TP
-\fB\-\-acme\-endpoint\fR=\fIACME_ENDPOINT\fR
-The address of the acme server to use
-.TP
-\fB\-\-acme\-port\fR=\fIACME_PORT\fR
-The port to listen on
-.TP
-\fB\-\-directory\fR=\fIDIR\fR
-The path to the directory where the certificates are stored
-.TP
-\fB\-\-staging\-directory\fR=\fIDIR\fR
-The path to the directory where the certificates are stored
-.TP
-\fB\-\-staging\fR=\fIDIR\fR
-The path to the directory where the certificates are stored
-.TP
-\fB\-\-encryption\-key\fR=\fIENCRYPTION_KEY\fR
-The encryption key to use for the database and session tokens
+\fB\-k\fR, \fB\-\-key\fR=\fIKEY\fR
+The encryption_key used to encrypt the stored data
 .SH SUBCOMMANDS
 .TP
-discord\-gating\-bot\-completion(1)
-Generates completion scripts for the specified shell
-.TP
 discord\-gating\-bot\-config(1)
-Print or edit the configuration
+Print the configuration and get a template file
 .TP
-discord\-gating\-bot\-key(1)
-Generate an encrypted key
+discord\-gating\-bot\-storage(1)
+Interact with the presistent storage and encryption
 .TP
 discord\-gating\-bot\-discord(1)
-Interact with discord directly
+Interact with discord directly, e.g. register slash commands
 .TP
 discord\-gating\-bot\-help(1)
 Print this message or the help of the given subcommand(s)
