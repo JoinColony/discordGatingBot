@@ -1,29 +1,20 @@
-😎 A template project for ColonySDK
+# Colony discord-gating-bot frontend
 
-# Quickstart (for the impatient)
+## How to develop
 
-1. Install [`nvm`](https://github.com/nvm-sh/nvm)
-2. Click "Use this template" on this repository's GitHub repository (https://github.com/JoinColony/colonyStarter). See also [GitHub's HowTo](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
-3. Clone your newly created repository
+1. Make sure you use the right node version [`nvm use`](https://github.com/nvm-sh/nvm) or [`fnm use`](https://github.com/Schniz/fnm).
+2. Install the Node dependencies:
 ```bash
-git clone https://github.com/YOURUSERNAME/colonyStarter
-```
-4. In the repository do:
-```bash
-nvm install # or, if you have the version installed already
-nvm use
 npm install
 ```
-5. To run the template's code in the browser:
+3. To run the code for development:
 ```bash
 npm run serve
 ```
-6. Or, to build the code into the `dist` directory:
+4. Or, to build the code into the `dist` directory
 ```bash
 npm run build
 ```
-
-You can find more information here [here](https://colony.gitbook.io/colony-sdk/quickstart)
 
 # Contribute
 
