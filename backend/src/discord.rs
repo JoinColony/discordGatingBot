@@ -3,26 +3,30 @@
 
 use crate::config::CONFIG;
 use crate::controller::{self, CheckResponse, CONTROLLER_CHANNEL};
-use serenity::async_trait;
-use serenity::http::Http;
-use serenity::model::application::command::Command;
-use serenity::model::application::interaction::{
-    application_command::{ApplicationCommandInteraction, CommandDataOptionValue},
-    Interaction, InteractionResponseType,
+use serenity::builder::{CreateApplicationCommand, CreateInteractionResponse};
+use serenity::{
+    async_trait,
+    http::Http,
+    model::{
+        application::{
+            command::Command,
+            interaction::{
+                application_command::{ApplicationCommandInteraction, CommandDataOptionValue},
+                Interaction, InteractionResponseType,
+            },
+        },
+        gateway::{GatewayIntents, Ready},
+        id::GuildId,
+        permissions::Permissions,
+        prelude::command::CommandOptionType,
+    },
+    prelude::*,
+    utils::MessageBuilder,
 };
-
-use serenity::model::gateway::{GatewayIntents, Ready};
-use serenity::model::id::GuildId;
-use serenity::model::permissions::Permissions;
-use serenity::model::prelude::command::CommandOptionType;
-use serenity::prelude::*;
-use serenity::utils::MessageBuilder;
-
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 pub async fn start() {
-    // Configure the client with your Discord bot token in the environment.
     let token = &CONFIG.wait().discord.token.clone();
     let mut client = Client::builder(token, GatewayIntents::empty())
         .event_handler(Handler)
@@ -46,39 +50,12 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
     http.set_application_id(app_id.into());
     let command_result = GuildId::set_application_commands(&guild_id, &http, |commands| {
         commands
-            .create_application_command(|c| {
-                debug!("Creating command gate");
-                c.name("gate")
-                    .description("Make a role gated by the reputation in a colony")
-                    .create_option(|o| {
-                        o.name("colony")
-                            .description("The colony in which the reputation guards the role")
-                            .kind(CommandOptionType::String)
-                            .required(true)
-                    })
-                    .create_option(|o| {
-                        o.name("reputation")
-                            .description("The reputation required to get the role")
-                            .kind(CommandOptionType::Integer)
-                            .required(true)
-                    })
-                    .create_option(|o| {
-                        o.name("role")
-                            .description("The role to be gated by reputation")
-                            .kind(CommandOptionType::Role)
-                            .required(true)
-                    })
-                    .default_member_permissions(Permissions::ADMINISTRATOR)
-            })
-            .create_application_command(|c| {
-                debug!("Creating command check");
-                c.name("check")
-                    .description("Check the reputation of a colony and get the gated roles")
-            })
+            .create_application_command(make_gate_command)
+            .create_application_command(make_check_command)
     })
     .await;
     if let Err(why) = command_result {
-        error!("Error creating slash commands: {:?}", why);
+        error!("Error registering guild slash commands: {:?}", why);
     }
 }
 
@@ -92,41 +69,10 @@ pub async fn register_global_slash_commands() {
         .expect("Failed to get application info");
     let app_id = resp.id;
     http.set_application_id(app_id.into());
-    if let Err(why) = Command::create_global_application_command(&http, |c| {
-        debug!("Creating global command gate");
-        c.name("gate")
-            .description("Make a role gated by the reputation in a colony")
-            .create_option(|o| {
-                o.name("colony")
-                    .description("The colony in which the reputation guards the role")
-                    .kind(CommandOptionType::String)
-                    .required(true)
-            })
-            .create_option(|o| {
-                o.name("reputation")
-                    .description("The reputation required to get the role")
-                    .kind(CommandOptionType::Integer)
-                    .required(true)
-            })
-            .create_option(|o| {
-                o.name("role")
-                    .description("The role to be gated by reputation")
-                    .kind(CommandOptionType::Role)
-                    .required(true)
-            })
-            .default_member_permissions(Permissions::ADMINISTRATOR)
-    })
-    .await
-    {
+    if let Err(why) = Command::create_global_application_command(&http, make_gate_command).await {
         error!("Error creating global slash command gate: {:?}", why);
     }
-    if let Err(why) = Command::create_global_application_command(&http, |c| {
-        debug!("Creating global command check");
-        c.name("check")
-            .description("Check the reputation of a colony and get the gated roles")
-    })
-    .await
-    {
+    if let Err(why) = Command::create_global_application_command(&http, make_check_command).await {
         error!("Error creating global slash command check: {:?}", why);
     }
 }
@@ -143,23 +89,109 @@ impl EventHandler for Handler {
             let interaction_response = match command.data.name.as_str() {
                 "gate" => gate_interaction_response(&command, &ctx).await,
                 "check" => check_interaction_response(&command, &ctx).await,
-                _ => {
-                    command
-                        .create_interaction_response(&ctx.http, |response| {
-                            response
-                                .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| {
-                                    message.content("There are no gated roles on this server")
-                                })
-                        })
-                        .await
-                }
+                _ => unknown_interaction_response(&command, &ctx).await,
             };
             if let Err(why) = interaction_response {
                 error!("Error responding to interaction: {:?}", why);
             }
         }
     }
+}
+
+async fn unknown_interaction_response(
+    command: &ApplicationCommandInteraction,
+    ctx: &Context,
+) -> Result<(), SerenityError> {
+    warn!("Unknown interaction: {:?}", command);
+    command
+        .create_interaction_response(&ctx.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| {
+                    message.content("Unknown command. Try /gate or /check")
+                })
+        })
+        .await
+}
+
+async fn channel_response<C: ToString>(
+    repsonse: &mut CreateInteractionResponse<'_>,
+    content: C,
+) -> Result<(), SerenityError> {
+    Ok(())
+}
+
+async fn role_adding_failure_response(
+    command: &ApplicationCommandInteraction,
+    ctx: &Context,
+    roles: &Vec<u64>,
+    error: &SerenityError,
+) {
+    warn!("Error adding roles: {:?}", error);
+    if let Err(why) = command.create_interaction_response(&ctx.http, |response| {
+        response
+            .kind(InteractionResponseType::ChannelMessageWithSource)
+            .interaction_response_data(|message| {
+                message.content(format!(
+                        "Got error while granting roles: {:?}: error: {}, maybe your admin should check the role hierarchy",
+                        roles, error
+                ))
+            })
+    })
+    .await {
+        error!("Error responding to interaction: {:?}", why);
+    }
+}
+
+async fn role_adding_success_response(
+    command: &ApplicationCommandInteraction,
+    ctx: &Context,
+    roles: &Vec<u64>,
+) -> Result<(), SerenityError> {
+    if let Err(why) = command
+        .create_interaction_response(&ctx.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| {
+                    message.content({
+                        let mut builder = MessageBuilder::new();
+                        builder.push("You have been granted the following roles: ");
+                        for role in roles.iter() {
+                            builder.role(*role);
+                        }
+                        builder.build()
+                    })
+                })
+        })
+        .await
+    {
+        error!("Error responding to interaction: {:?}", why);
+        return Err(why);
+    }
+    Ok(())
+}
+
+async fn grant_roles(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+    roles: &Vec<u64>,
+) -> Result<(), SerenityError> {
+    for role in roles.iter() {
+        if let Err(why) = ctx
+            .http
+            .add_member_role(
+                command.guild_id.unwrap().into(),
+                command.user.id.into(),
+                *role,
+                None,
+            )
+            .await
+        {
+            role_adding_failure_response(command, ctx, roles, &why).await;
+            return Err(why);
+        }
+    }
+    role_adding_success_response(command, ctx, roles).await
 }
 
 async fn check_interaction_response(
@@ -177,56 +209,7 @@ async fn check_interaction_response(
     }
     let response = rx.await.unwrap();
     match response {
-        CheckResponse::Grant(roles) => {
-            for role in roles.iter() {
-                if let Err(why) = ctx
-                    .http
-                    .add_member_role(
-                        command.guild_id.unwrap().into(),
-                        command.user.id.into(),
-                        *role,
-                        None,
-                    )
-                    .await
-                {
-                    if let Err(why) = command
-                        .create_interaction_response(&ctx.http, |response| {
-                            response
-                                .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| {
-                                    message.content(format!(
-                                        "Got error while granting roles: {:?}: error: {}, maybe your admin should check the role hierarchy",
-                                        roles, why
-                                    ))
-                                })
-                        })
-                        .await {
-                        warn!("Error responding to interaction: {:?}", why);
-                        }
-                    return Err(why);
-                }
-            }
-            command
-                .create_interaction_response(&ctx.http, |response| {
-                    response
-                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|message| {
-                            message.content({
-                                let mut builder = MessageBuilder::new();
-                                builder.push("You have been granted the following roles: ");
-                                for role in roles.iter() {
-                                    builder.role(*role);
-                                }
-                                builder.build()
-                            })
-                            // message.content(format!(
-                            //     "Your reputation in the colonies is good enough to get these roles: {:?}",
-                            // roles
-                            // ))
-                        })
-                })
-                .await
-        }
+        CheckResponse::Grant(roles) => grant_roles(ctx, command, &roles).await,
         CheckResponse::Register(url) => {
             command.user .direct_message(&ctx.http, |m| {
                 m.content(format!(
@@ -242,17 +225,6 @@ async fn check_interaction_response(
                         .kind(InteractionResponseType::ChannelMessageWithSource)
                         .interaction_response_data(|message| {
                             message.content("You need to register first, check your DMs")
-                        })
-                })
-                .await
-        }
-        CheckResponse::NoGates => {
-            command
-                .create_interaction_response(&ctx.http, |response| {
-                    response
-                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|message| {
-                            message.content("Here are no roles gated by colony reputation")
                         })
                 })
                 .await
@@ -306,4 +278,43 @@ async fn gate_interaction_response(
                 .interaction_response_data(|message| message.content("Gates up"))
         })
         .await
+}
+
+fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    debug!("Creating gate slash command");
+    command
+        .name("gate")
+        .description("Make a role gated by the reputation in a colony")
+        .create_option(|o| {
+            o.name("colony")
+                .description("The colony in which the reputation guards the role")
+                .kind(CommandOptionType::String)
+                .required(true)
+        })
+        .create_option(|o| {
+            o.name("domain")
+                .description("The domain of the colony in which the reputation guards the role")
+                .kind(CommandOptionType::Integer)
+                .required(true)
+        })
+        .create_option(|o| {
+            o.name("reputation")
+                .description("The percentage of reputation in the domain, required to get the role")
+                .kind(CommandOptionType::Integer)
+                .required(true)
+        })
+        .create_option(|o| {
+            o.name("role")
+                .description("The role to be gated by reputation")
+                .kind(CommandOptionType::Role)
+                .required(true)
+        })
+        .default_member_permissions(Permissions::ADMINISTRATOR)
+}
+
+fn make_check_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    debug!("Creating check slash command");
+    command
+        .name("check")
+        .description("Check the reputation of a colony and get the gated roles")
 }

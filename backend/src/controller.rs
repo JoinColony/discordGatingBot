@@ -14,6 +14,7 @@ use hex;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::{
+    hash::Hash,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -54,7 +55,6 @@ pub enum Message {
 /// inbound message.
 #[derive(Debug)]
 pub enum CheckResponse {
-    NoGates,
     Grant(Vec<u64>),
     Register(String),
 }
@@ -69,7 +69,7 @@ pub enum RegisterResponse {
 
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Hash, Serialize)]
 pub struct Gate {
     /// The colony address in which the reputation should be looked up
     colony: String,
@@ -132,25 +132,18 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         response_tx,
                     } => {
                         if let Some(wallet) = controller.storage.get_user(&user_id) {
-                            if let Some(gates) = controller.storage.get_gates(&guild_id) {
-                                let granted_roles: Vec<_> = gates
-                                    .iter()
-                                    .filter(|gate| {
-                                        let reputation = check_reputation(&gate.colony, &wallet);
-                                        reputation >= gate.reputation
-                                    })
-                                    .map(|gate| gate.role_id)
-                                    .collect();
-                                if let Err(why) =
-                                    response_tx.send(CheckResponse::Grant(granted_roles))
-                                {
-                                    error!("Failed to send CheckResponse::Grant: {:?}", why);
-                                };
-                            } else {
-                                if let Err(why) = response_tx.send(CheckResponse::NoGates) {
-                                    error!("Failed to send CheckResponse::NoGates: {:?}", why);
-                                };
-                            }
+                            let gates = controller.storage.get_gates(&guild_id);
+                            let granted_roles: Vec<_> = gates
+                                .filter(|gate| {
+                                    let reputation = check_reputation(&gate.colony, &wallet);
+                                    reputation >= gate.reputation
+                                })
+                                .map(|gate| gate.role_id)
+                                .collect();
+                            if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles))
+                            {
+                                error!("Failed to send CheckResponse::Grant: {:?}", why);
+                            };
                         } else {
                             let url = CONFIG.wait().server.url.clone();
                             let port = CONFIG.wait().server.port;

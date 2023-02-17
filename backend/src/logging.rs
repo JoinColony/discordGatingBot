@@ -50,7 +50,6 @@ pub fn setup_logging() {
     trace!("Logging initialized");
 }
 
-
 /// The different log levels, from quiet = 0 to trace = 5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogLevel {
