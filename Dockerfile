@@ -3,6 +3,7 @@ FROM docker.io/rust as builder
 WORKDIR /usr/src/discord-gating-bot
 COPY . .
 
+WORKDIR /usr/src/discord-gating-bot/backend
 RUN cargo install --path .
 
 FROM docker.io/debian:bullseye-slim
@@ -11,8 +12,8 @@ RUN apt-get update && apt-get install -y ca-certificates man bash-completion les
 
 ENV TERM=xterm-256color
 COPY --from=builder /usr/local/cargo/bin/discord-gating-bot /usr/local/bin/discord-gating-bot
-COPY --from=builder /usr/src/discord-gating-bot/man /usr/local/share/man/man1
-COPY --from=builder /usr/src/discord-gating-bot/completion/discord-gating-bot.bash \
+COPY --from=builder /usr/src/discord-gating-bot/backend/man /usr/local/share/man/man1
+COPY --from=builder /usr/src/discord-gating-bot/backend/completion/discord-gating-bot.bash \
 /usr/local/share/bash-completion/completions/discord-gating-bot.bash
 
 RUN echo "source /usr/local/share/bash-completion/completions/discord-gating-bot.bash" >> ~/.bashrc && \

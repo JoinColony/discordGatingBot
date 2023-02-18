@@ -201,6 +201,7 @@ async fn check_interaction_response(
     let (tx, rx) = oneshot::channel();
     let message = controller::Message::Check {
         user_id: command.user.id.into(),
+        username: command.user.name.clone(),
         guild_id: command.guild_id.unwrap().into(),
         response_tx: tx,
     };
@@ -239,6 +240,7 @@ async fn gate_interaction_response(
     let mut reputation: u32 = 0;
     let mut role_id: u64 = 0;
     let mut guild_id: u64 = 0;
+    let mut domain: u64 = 0;
     for option in command.data.options.iter() {
         match option.name.as_str() {
             "colony" => {
@@ -246,6 +248,13 @@ async fn gate_interaction_response(
                     option.resolved.as_ref().unwrap()
                 {
                     colony = colony_value.into();
+                }
+            }
+            "domain" => {
+                if let CommandDataOptionValue::Integer(domain_value) =
+                    option.resolved.as_ref().unwrap()
+                {
+                    domain = *domain_value as u64;
                 }
             }
             "reputation" => {
@@ -266,6 +275,7 @@ async fn gate_interaction_response(
     }
     let message = controller::Message::Gate {
         colony,
+        domain,
         reputation,
         role_id,
         guild_id,

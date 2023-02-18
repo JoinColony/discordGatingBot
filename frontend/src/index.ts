@@ -10,8 +10,10 @@ const start = async () => {
 
   const signer = provider.getSigner();
 
-  const sessionId = window.location.pathname.replace('/', '');
-  const signature = await signer.signMessage(`Please sign this message to connect your Discord username [USERNAME_HERE] with your wallet address. Session ID: ${sessionId}`);
+  const pathSplit = window.location.pathname.split('/');
+  const username = pathSplit[2]
+  const sessionId = pathSplit[3]
+  const signature = await signer.signMessage(`Please sign this message to connect your Discord username ${username} with your wallet address. Session ID: ${sessionId}`);
 
   const response = await fetch(window.location.href, {
     method: 'POST',

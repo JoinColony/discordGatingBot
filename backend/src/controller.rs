@@ -10,6 +10,8 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305,
 };
+use colony_rs::{get_reputation_in_domain, U512};
+use futures::{future, stream, FutureExt, StreamExt};
 use hex;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -19,7 +21,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{mpsc, oneshot};
-use tracing::error;
+use tracing::{debug, error};
+use urlencoding;
 
 /// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
@@ -35,12 +38,14 @@ static SESSION_KEY: OnceCell<Vec<u8>> = OnceCell::new();
 pub enum Message {
     Gate {
         colony: String,
+        domain: u64,
         reputation: u32,
         role_id: u64,
         guild_id: u64,
     },
     Check {
         user_id: u64,
+        username: String,
         guild_id: u64,
         response_tx: oneshot::Sender<CheckResponse>,
     },
@@ -73,6 +78,8 @@ pub enum RegisterResponse {
 pub struct Gate {
     /// The colony address in which the reputation should be looked up
     colony: String,
+    /// The domain in which the reputation should be looked up  
+    domain: u64,
     /// The reputation amount required to be granted the role
     reputation: u32,
     /// The role to be granted
@@ -101,7 +108,11 @@ impl<S: Storage + Send + 'static> Controller<S> {
 
     /// Starts the controller and sets the global static channel for other
     /// parts of the application to communicate with it.
-    pub async fn init() {
+    pub async fn init()
+    where
+        S: Storage + Send + 'static,
+        <S as Storage>::GateIter: Send,
+    {
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);
         SESSION_KEY
             .set(key.to_vec())
@@ -115,12 +126,14 @@ impl<S: Storage + Send + 'static> Controller<S> {
                 match message {
                     Message::Gate {
                         colony,
+                        domain,
                         reputation,
                         role_id,
                         guild_id,
                     } => {
                         let gate = Gate {
                             colony,
+                            domain,
                             reputation,
                             role_id,
                         };
@@ -128,31 +141,48 @@ impl<S: Storage + Send + 'static> Controller<S> {
                     }
                     Message::Check {
                         user_id,
+                        username,
                         guild_id,
                         response_tx,
                     } => {
-                        if let Some(wallet) = controller.storage.get_user(&user_id) {
-                            let gates = controller.storage.get_gates(&guild_id);
-                            let granted_roles: Vec<_> = gates
-                                .filter(|gate| {
-                                    let reputation = check_reputation(&gate.colony, &wallet);
-                                    reputation >= gate.reputation
-                                })
-                                .map(|gate| gate.role_id)
-                                .collect();
-                            if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles))
-                            {
-                                error!("Failed to send CheckResponse::Grant: {:?}", why);
-                            };
-                        } else {
-                            let url = CONFIG.wait().server.url.clone();
-                            let port = CONFIG.wait().server.port;
-                            let session = Session::new(user_id);
-                            let url = format!("{}:{}/session/{}", url, port, session.encode());
-                            if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
-                                error!("Failed to send CheckResponse::Register: {:?}", why);
-                            };
-                        }
+                        let user_result = controller.storage.get_user(&user_id);
+                        let gates = controller.storage.get_gates(&guild_id);
+                        let wallet = match user_result {
+                            Some(wallet) => wallet,
+                            None => {
+                                let url = CONFIG.wait().server.url.clone();
+                                let port = CONFIG.wait().server.port;
+                                let session = Session::new(user_id, username);
+                                let url = format!(
+                                    "{}:{}/register/{}/{}",
+                                    url,
+                                    port,
+                                    urlencoding::encode(&session.username),
+                                    session.encode()
+                                );
+                                if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
+                                    error!("Failed to send CheckResponse::Register: {:?}", why);
+                                };
+                                continue;
+                            }
+                        };
+                        let wallet_iter = WalletIterator::new(wallet);
+                        let zipped_iter = wallet_iter.zip(gates);
+                        let granted_roles: Vec<_> = stream::iter(zipped_iter)
+                            .filter_map(|(wallet_arc, gate)| async move {
+                                let reputation =
+                                    check_reputation(&gate.colony, gate.domain, &wallet_arc).await;
+                                if reputation >= gate.reputation {
+                                    Some(gate.role_id)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .await;
+                        if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
+                            error!("Failed to send CheckResponse::Grant: {:?}", why);
+                        };
                     }
                     Message::Register {
                         user_id,
@@ -180,16 +210,45 @@ impl<S: Storage + Send + 'static> Controller<S> {
     }
 }
 
+struct WalletIterator {
+    wallet: std::sync::Arc<String>,
+}
+impl WalletIterator {
+    fn new(wallet: String) -> Self {
+        WalletIterator {
+            wallet: std::sync::Arc::new(wallet),
+        }
+    }
+}
+impl Iterator for WalletIterator {
+    type Item = std::sync::Arc<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let wallet = self.wallet.clone();
+        Some(wallet)
+    }
+}
+
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
-fn check_reputation(colony: &str, wallet: &str) -> u32 {
-    match (colony, wallet) {
-        ("colony1", "wallet1") => 10,
-        ("colony1", "wallet2") => 20,
-        ("colony2", "wallet2") => 30,
-        ("colony2", "wallet1") => 40,
-        _ => 0,
-    }
+async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u32 {
+    let colony_addrss = colony_rs::Address::from_str(colony).unwrap();
+    let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
+    let zero_address = colony_rs::Address::zero();
+    // TODO: Fetch both results in parallel
+    let base_reputation_str = get_reputation_in_domain(&colony_addrss, &zero_address, domain)
+        .await
+        .unwrap()
+        .reputation_amount;
+    debug!("Base reputation: {}", base_reputation_str);
+    let user_reputation_str = get_reputation_in_domain(&colony_addrss, &wallet_address, domain)
+        .await
+        .unwrap()
+        .reputation_amount;
+    let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
+    let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
+    let reputation = user_reputation * U512::from(100) / base_reputation;
+    reputation.as_u32()
 }
 
 /// This represents a session for a user that has not yet registered their
@@ -199,16 +258,21 @@ fn check_reputation(colony: &str, wallet: &str) -> u32 {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Session {
     pub user_id: u64,
+    pub username: String,
     pub timestamp: u64,
 }
 
 impl Session {
-    pub fn new(user_id: u64) -> Self {
+    pub fn new(user_id: u64, username: String) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Failed to get system timestamp")
             .as_secs();
-        Session { user_id, timestamp }
+        Session {
+            user_id,
+            username,
+            timestamp,
+        }
     }
 
     pub fn expired(&self) -> bool {
@@ -220,7 +284,7 @@ impl Session {
     }
 
     pub fn encode(&self) -> String {
-        let plaintext_str = format!("{}:{}", self.user_id, self.timestamp);
+        let plaintext_str = format!("{}:{}:{}", self.user_id, self.username, self.timestamp);
 
         let plaintext = plaintext_str.as_bytes();
         let key_bytes = SESSION_KEY.wait();
@@ -238,8 +302,8 @@ impl Session {
 impl FromStr for Session {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
-        let user_id: u64;
-        let timestamp;
+        // let user_id: u64;
+        // let timestamp;
 
         let key_bytes = SESSION_KEY.wait();
         let key = GenericArray::from_slice(&key_bytes);
@@ -260,13 +324,18 @@ impl FromStr for Session {
         let plaintext_str = String::from_utf8(plaintext)?;
 
         let parts: Vec<_> = plaintext_str.split(':').collect();
-        if parts.len() != 2 {
+        if parts.len() != 3 {
             bail!("Invalid session string");
         }
-        user_id = parts[0].parse()?;
-        timestamp = parts[1].parse()?;
+        let user_id = parts[0].parse()?;
+        let username = parts[1].parse()?;
+        let timestamp = parts[2].parse()?;
 
-        Ok(Self { user_id, timestamp })
+        Ok(Self {
+            user_id,
+            username,
+            timestamp,
+        })
     }
 }
 
@@ -286,10 +355,11 @@ mod tests {
     #[tokio::test]
     async fn test_session() {
         setup().await;
-        let session = Session::new(123);
+        let session = Session::new(123, "test".to_string());
         let encoded = session.encode();
         let decoded = Session::from_str(&encoded).unwrap();
         assert_eq!(session.user_id, decoded.user_id);
+        assert_eq!(session.username, decoded.username);
         assert_eq!(session.timestamp, decoded.timestamp);
     }
 }
