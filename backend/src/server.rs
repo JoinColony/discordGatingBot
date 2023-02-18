@@ -24,11 +24,14 @@ static INVALID_SESSION: &'static str = include_str!("../static/registration-inva
 static ERROR: &'static str = include_str!("../static/error.html");
 static SIGN_SCRIPT: &'static str = include_str!("../../frontend/dist/index.js");
 
-const REGISTRATION_MESSAGE: &str = "PPlease sign this message to connect your Discord username {username} with your wallet address. Session ID: {session}";
+const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your Discord username {username} with your wallet address. Session ID: {session}";
 
 #[post("/register/{username}/{session}")]
 async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) -> impl Responder {
-    debug!("Received registration request for session {}", path.1);
+    debug!(
+        "Received registration request for session: {}, payload: {}",
+        path.1, data.signature
+    );
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -70,9 +73,17 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
             return HttpResponse::BadRequest().body(INVALID_SESSION);
         }
     };
+    debug!(
+        "Recovered wallet {:?} from signature: {:?} and message: {}",
+        wallet, &data.signature, message
+    );
 
-    if validate_signature(&wallet, &message, &data.signature).is_err() {
-        warn!("Invalid signature for session {}", session_str);
+    // let wallet = colony_rs::Address::from_str(&data.wallet).unwrap();
+    if signature.verify(message.clone(), wallet).is_err() {
+        warn!(
+            "Invalid signature {} for message {}",
+            data.signature, message
+        );
         return HttpResponse::BadRequest().body(INVALID_SESSION);
     }
 
@@ -80,7 +91,7 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
 
     let message = Message::Register {
         user_id: session.user_id,
-        wallet: wallet.to_string(),
+        wallet: format!("{:?}", wallet),
         response_tx: tx,
     };
 
@@ -167,10 +178,4 @@ pub async fn start() -> std::io::Result<()> {
 #[derive(Deserialize)]
 struct JsonData {
     signature: String,
-}
-
-#[derive(TemplateOnce)]
-#[template(path = "index.js")]
-struct ScriptTemplate {
-    signing_message: String,
 }

@@ -187,6 +187,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         wallet,
                         response_tx,
                     } => {
+                        debug!("Registering user {} with wallet {}", user_id, wallet);
                         if controller.storage.contains_user(&user_id) {
                             if let Err(why) = response_tx.send(RegisterResponse::AlreadyRegistered)
                             {
@@ -230,19 +231,30 @@ impl Iterator for WalletIterator {
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
 async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u32 {
+    debug!(
+        "Checking reputation for wallet {} in colony {} domain {}",
+        wallet, colony, domain
+    );
     let colony_addrss = colony_rs::Address::from_str(colony).unwrap();
     let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
     let zero_address = colony_rs::Address::zero();
     // TODO: Fetch both results in parallel
-    let base_reputation_str = get_reputation_in_domain(&colony_addrss, &zero_address, domain)
-        .await
-        .unwrap()
-        .reputation_amount;
+    let base_reputation_str = if let Ok(reputation) =
+        get_reputation_in_domain(&colony_addrss, &zero_address, domain).await
+    {
+        reputation.reputation_amount
+    } else {
+        "0".to_string()
+    };
+
     debug!("Base reputation: {}", base_reputation_str);
-    let user_reputation_str = get_reputation_in_domain(&colony_addrss, &wallet_address, domain)
-        .await
-        .unwrap()
-        .reputation_amount;
+    let user_reputation_str = if let Ok(reputation) =
+        get_reputation_in_domain(&colony_addrss, &wallet_address, domain).await
+    {
+        reputation.reputation_amount
+    } else {
+        "0".to_string()
+    };
     let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
     let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
     let reputation = user_reputation * U512::from(100) / base_reputation;
