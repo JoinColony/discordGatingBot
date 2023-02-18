@@ -8,7 +8,7 @@ RUN cargo install --path .
 
 FROM docker.io/debian:bullseye-slim
 
-RUN apt-get update && apt-get install -y ca-certificates man bash-completion less && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates bash-completion curl less man  && rm -rf /var/lib/apt/lists/*
 
 ENV TERM=xterm-256color
 COPY --from=builder /usr/local/cargo/bin/discord-gating-bot /usr/local/bin/discord-gating-bot
