@@ -151,12 +151,10 @@ impl<S: Storage + Send + 'static> Controller<S> {
                             Some(wallet) => wallet,
                             None => {
                                 let url = CONFIG.wait().server.url.clone();
-                                let port = CONFIG.wait().server.port;
                                 let session = Session::new(user_id, username);
                                 let url = format!(
-                                    "{}:{}/register/{}/{}",
+                                    "{}/register/{}/{}",
                                     url,
-                                    port,
                                     urlencoding::encode(&session.username),
                                     session.encode()
                                 );
