@@ -38,6 +38,7 @@ pub fn execute(cli: &Cli) {
             let key = ChaCha20Poly1305::generate_key(&mut OsRng);
             println!("{}", hex::encode(key));
         }
+
         Some(Commands::Storage(StorageCmd::Guild(GuildCmd::List { start, end }))) => {
             let storage = SledUnencryptedStorage::new();
             storage
@@ -97,7 +98,7 @@ pub fn execute(cli: &Cli) {
             for guild in guilds {
                 println!("\nGuild: {}", guild);
                 storage
-                    .get_gates(&guild)
+                    .list_gates(&guild)
                     .skip(*start as usize)
                     .take(*end as usize - *start as usize)
                     .for_each(|gate| {
@@ -105,6 +106,7 @@ pub fn execute(cli: &Cli) {
                     });
             }
         }
+
         Some(Commands::Storage(StorageCmd::Gate(GateCmd::Add {
             guild_id,
             colony_address,
@@ -121,6 +123,7 @@ pub fn execute(cli: &Cli) {
             };
             storage.add_gate(guild_id, gate);
         }
+
         Some(Commands::Storage(StorageCmd::Gate(GateCmd::Remove {
             guild_id,
             colony_address,
@@ -145,6 +148,7 @@ pub fn execute(cli: &Cli) {
                 .unwrap();
             rt.block_on(discord::register_global_slash_commands())
         }
+
         Some(Commands::Discord(DiscordCmd::Register(RegisterCmd::Guild { guild_id }))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -152,6 +156,7 @@ pub fn execute(cli: &Cli) {
                 .unwrap();
             rt.block_on(discord::register_guild_slash_commands(*guild_id));
         }
+
         Some(Commands::Discord(DiscordCmd::Delete(DeleteCmd::Global))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -159,6 +164,7 @@ pub fn execute(cli: &Cli) {
                 .unwrap();
             rt.block_on(discord::delete_global_slash_commands())
         }
+
         Some(Commands::Discord(DiscordCmd::Delete(DeleteCmd::Guild { guild_id }))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -166,6 +172,7 @@ pub fn execute(cli: &Cli) {
                 .unwrap();
             rt.block_on(discord::delete_guild_slash_commands(*guild_id));
         }
+
         None => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

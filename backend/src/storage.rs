@@ -19,7 +19,7 @@ pub trait Storage {
     fn list_guilds(&self) -> Self::GuildIter;
     fn remove_guild(&mut self, guild_id: u64);
     fn add_gate(&mut self, guild_id: &u64, gate: Gate);
-    fn get_gates(&self, guild_id: &u64) -> Self::GateIter;
+    fn list_gates(&self, guild_id: &u64) -> Self::GateIter;
     fn remove_gate(&mut self, guild_id: &u64, gate: Gate);
     fn get_user(&self, user_id: &u64) -> Option<String>;
     fn list_users(&self) -> Self::UserIter;
@@ -62,7 +62,7 @@ impl Storage for InMemoryStorage {
         self.gates.insert(*guild_id, gates);
     }
 
-    fn get_gates(&self, guild_id: &u64) -> Self::GateIter {
+    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
         if let Some(gates) = self.gates.get(&guild_id) {
             gates.clone().into_iter()
         } else {
@@ -120,6 +120,7 @@ impl Storage for SledUnencryptedStorage {
         let tree_name = guild_id.to_be_bytes().to_vec();
         self.db.drop_tree(tree_name).unwrap();
     }
+
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
         let gate_bytes = bincode::serialize(&gate).unwrap();
@@ -135,7 +136,7 @@ impl Storage for SledUnencryptedStorage {
         tree.remove(h.finish().to_be_bytes()).unwrap();
     }
 
-    fn get_gates(&self, guild_id: &u64) -> Self::GateIter {
+    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
         tree.iter()
             .map(|x| bincode::deserialize::<Gate>(&x.unwrap().1).unwrap())
