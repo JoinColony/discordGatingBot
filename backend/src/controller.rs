@@ -145,8 +145,9 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         guild_id,
                         response_tx,
                     } => {
+                        debug!("Checking user {} in guild {}", user_id, guild_id);
                         let user_result = controller.storage.get_user(&user_id);
-                        let gates = controller.storage.get_gates(&guild_id);
+                        let gates = controller.storage.list_gates(&guild_id);
                         let wallet = match user_result {
                             Some(wallet) => wallet,
                             None => {
@@ -164,12 +165,18 @@ impl<S: Storage + Send + 'static> Controller<S> {
                                 continue;
                             }
                         };
+                        debug!("User {} has wallet {}", user_id, wallet);
                         let wallet_iter = WalletIterator::new(wallet);
                         let zipped_iter = wallet_iter.zip(gates);
                         let granted_roles: Vec<_> = stream::iter(zipped_iter)
                             .filter_map(|(wallet_arc, gate)| async move {
+                                debug!("Checking gate {:?} with wallet {}", gate, *wallet_arc);
                                 let reputation =
                                     check_reputation(&gate.colony, gate.domain, &wallet_arc).await;
+                                debug!(
+                                    "Reputation in domain {} of colony {} is {}",
+                                    gate.domain, gate.colony, reputation
+                                );
                                 if reputation >= gate.reputation {
                                     Some(gate.role_id)
                                 } else {
