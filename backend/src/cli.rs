@@ -76,27 +76,173 @@ pub enum ConfigCmd {
     Template,
 }
 
-/// Represents the discord sub command, used to register slash commands
+/// represents the discord sub command, used to register and delete slash commands
 #[derive(Subcommand)]
 #[clap()]
 pub enum DiscordCmd {
     /// Register the global slash commands
+    #[clap(subcommand)]
+    Register(RegisterCmd),
+    /// Register the slash commands for a specific guild
+    #[clap(subcommand)]
+    Delete(DeleteCmd),
+}
+
+/// represents the discord sub command, used to register slash commands in
+/// a specific guild or globally
+#[derive(Subcommand)]
+#[clap()]
+pub enum RegisterCmd {
+    /// Register the global slash commands
     Global,
     /// Register the slash commands for a specific guild
-    Server {
+    Guild {
         /// The guild id
         #[clap(value_hint = ValueHint::Other)]
         guild_id: u64,
     },
 }
 
-/// Represents the storage sub command, used to interact with the storage_type
-/// and encryption
+/// represents the discord sub command, used to delete slash commands in
+/// a specific guild or globally
+#[derive(Subcommand)]
+#[clap()]
+pub enum DeleteCmd {
+    /// Register the global slash commands
+    Global,
+    /// Register the slash commands for a specific guild
+    Guild {
+        /// The guild id
+        #[clap(value_hint = ValueHint::Other)]
+        guild_id: u64,
+    },
+}
+
+/// Represents the storage sub command, used to interact with the stored data
+/// and encryption. Commands that use the data on disk, only work if the
+/// bot is not running, otherwise the data is locked.
 #[derive(Subcommand)]
 #[clap()]
 pub enum StorageCmd {
     /// Generates a new key than can be used for encryption at rest
     Generate,
+    /// List or delete discord guilds in the db
+    #[clap(subcommand)]
+    Guild(GuildCmd),
+    #[clap(subcommand)]
+    /// List, add or delete discord users in the db
+    User(UserCmd),
+    #[clap(subcommand)]
+    /// List, add or delete discord role gates in the db
+    Gate(GateCmd),
+}
+
+/// Represents the user sub command, used to interact with the user storage
+#[derive(Subcommand)]
+#[clap()]
+pub enum GuildCmd {
+    /// List all guilds
+    List {
+        /// Starting index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "0")]
+        start: u64,
+        /// End index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "100")]
+        end: u64,
+    },
+    /// Remove a guild
+    Remove {
+        /// The discord user id
+        #[clap(value_hint = ValueHint::Other)]
+        guild_id: u64,
+    },
+}
+
+/// Represents the user sub command, used to interact with the user storage
+#[derive(Subcommand)]
+#[clap()]
+pub enum UserCmd {
+    /// List all users
+    List {
+        /// Starting index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "0")]
+        start: u64,
+        /// End index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "100")]
+        end: u64,
+    },
+    /// Add a new user
+    Add {
+        /// The discord user id
+        #[clap(value_hint = ValueHint::Other)]
+        user_id: u64,
+        /// The etherum wallet address
+        #[clap(value_hint = ValueHint::Other)]
+        wallet_address: String,
+    },
+    /// Remove a user
+    Remove {
+        /// The discord user id
+        #[clap(value_hint = ValueHint::Other)]
+        user_id: u64,
+    },
+}
+
+/// Represents the gates sub command, used to interact with the gates storage
+#[derive(Subcommand)]
+#[clap()]
+pub enum GateCmd {
+    /// List all gates
+    List {
+        /// The discord guild(server) id
+        #[clap(short, long)]
+        guild: Option<u64>,
+        /// Starting index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "0")]
+        start: u64,
+        /// End index of the listed entries
+        #[clap(value_hint = ValueHint::Other, default_value = "100")]
+        end: u64,
+        /// List gates in all guilds
+        #[clap(short, long, conflicts_with = "guild")]
+        all_guilds: bool,
+    },
+    /// Add a new gate
+    Add {
+        /// The guild id
+        #[clap(value_hint = ValueHint::Other)]
+        guild_id: u64,
+        /// The colony address
+        #[clap(value_hint = ValueHint::Other)]
+        colony_address: String,
+        /// The domain id
+        #[clap(value_hint = ValueHint::Other)]
+        domain_id: u64,
+        /// The percentage of reputation needed to get the role
+        #[clap(value_hint = ValueHint::Other)]
+        reputation: u32,
+        /// The discord role id
+        #[clap(value_hint = ValueHint::Other)]
+        role_id: u64,
+    },
+    /// Remove a gate
+    Remove {
+        /// The guild id
+        #[clap(value_hint = ValueHint::Other)]
+        guild_id: u64,
+        /// The colony address
+        #[clap(value_hint = ValueHint::Other)]
+        colony_address: String,
+        /// The domain
+        #[clap(value_hint = ValueHint::Other)]
+        domain_id: u64,
+        /// The percentage of reputation needed to get the role
+        #[clap(value_hint = ValueHint::Other)]
+        reputation: u32,
+        /// The discord role id
+        #[clap(value_hint = ValueHint::Other)]
+        role_id: u64,
+    },
 }
 
 /// This structs contains the configuration for the application from command

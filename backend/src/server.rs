@@ -5,9 +5,7 @@
 use crate::config::CONFIG;
 use crate::controller::{Message, RegisterResponse, Session, CONTROLLER_CHANNEL};
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
-use colony_rs::validate_signature;
 use colony_rs::Signature;
-use sailfish::TemplateOnce;
 use serde::Deserialize;
 use std::str::FromStr;
 use tokio::sync::oneshot;

@@ -59,6 +59,28 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
     }
 }
 
+pub async fn delete_guild_slash_commands(guild_id: u64) {
+    let token = &CONFIG.wait().discord.token.clone();
+    debug!("Deleting slash commands for guild {}", guild_id);
+    let guild_id = GuildId(guild_id);
+    let http = Http::new(&token);
+    let resp = http
+        .get_current_application_info()
+        .await
+        .expect("Failed to get application info");
+    let app_id = resp.id;
+    http.set_application_id(app_id.into());
+    let commands = guild_id
+        .get_application_commands(&http)
+        .await
+        .expect("Failed to get guild commands");
+    for command in commands {
+        if let Err(why) = guild_id.delete_application_command(&http, command.id).await {
+            error!("Error deleting guild slash commands: {:?}", why);
+        }
+    }
+}
+
 pub async fn register_global_slash_commands() {
     let token = &CONFIG.wait().discord.token.clone();
     debug!("Registering slash commands globally");
@@ -74,6 +96,29 @@ pub async fn register_global_slash_commands() {
     }
     if let Err(why) = Command::create_global_application_command(&http, make_check_command).await {
         error!("Error creating global slash command check: {:?}", why);
+    }
+}
+
+pub async fn delete_global_slash_commands() {
+    let token = &CONFIG.wait().discord.token.clone();
+    debug!("Deleting slash commands globally");
+    let http = Http::new(&token);
+    let resp = http
+        .get_current_application_info()
+        .await
+        .expect("Failed to get application info");
+    let app_id = resp.id;
+    http.set_application_id(app_id.into());
+    let commands = Command::get_global_application_commands(&http)
+        .await
+        .expect("Failed to get global commands");
+    for command in commands {
+        if let Err(why) = Command::delete_global_application_command(&http, command.id).await {
+            error!(
+                "Error deleting global slash command {}: {:?}",
+                command.id, why
+            );
+        }
     }
 }
 

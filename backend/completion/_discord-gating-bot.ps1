@@ -95,12 +95,150 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
             [CompletionResult]::new('generate', 'generate', [CompletionResultType]::ParameterValue, 'Generates a new key than can be used for encryption at rest')
+            [CompletionResult]::new('guild', 'guild', [CompletionResultType]::ParameterValue, 'List or delete discord guilds in the db')
+            [CompletionResult]::new('user', 'user', [CompletionResultType]::ParameterValue, 'List, add or delete discord users in the db')
+            [CompletionResult]::new('gate', 'gate', [CompletionResultType]::ParameterValue, 'List, add or delete discord role gates in the db')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'discord-gating-bot;storage;generate' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;guild' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List all guilds')
+            [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a guild')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'discord-gating-bot;storage;guild;list' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;guild;remove' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;guild;help' {
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;user' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List all users')
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a new user')
+            [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a user')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'discord-gating-bot;storage;user;list' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;user;add' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;user;remove' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;user;help' {
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;gate' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List all gates')
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a new gate')
+            [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a gate')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'discord-gating-bot;storage;gate;list' {
+            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'The discord guild(server) id')
+            [CompletionResult]::new('--guild', 'guild', [CompletionResultType]::ParameterName, 'The discord guild(server) id')
+            [CompletionResult]::new('-a', 'a', [CompletionResultType]::ParameterName, 'List gates in all guilds')
+            [CompletionResult]::new('--all-guilds', 'all-guilds', [CompletionResultType]::ParameterName, 'List gates in all guilds')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;gate;add' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;gate;remove' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;storage;gate;help' {
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
@@ -121,12 +259,24 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
-            [CompletionResult]::new('global', 'global', [CompletionResultType]::ParameterValue, 'Register the global slash commands')
-            [CompletionResult]::new('server', 'server', [CompletionResultType]::ParameterValue, 'Register the slash commands for a specific guild')
+            [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register the global slash commands')
+            [CompletionResult]::new('delete', 'delete', [CompletionResultType]::ParameterValue, 'Register the slash commands for a specific guild')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
-        'discord-gating-bot;discord;global' {
+        'discord-gating-bot;discord;register' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('global', 'global', [CompletionResultType]::ParameterValue, 'Register the global slash commands')
+            [CompletionResult]::new('guild', 'guild', [CompletionResultType]::ParameterValue, 'Register the slash commands for a specific guild')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'discord-gating-bot;discord;register;global' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
@@ -135,9 +285,53 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
             break
         }
-        'discord-gating-bot;discord;server' {
+        'discord-gating-bot;discord;register;guild' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;discord;register;help' {
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;discord;delete' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('global', 'global', [CompletionResultType]::ParameterValue, 'Register the global slash commands')
+            [CompletionResult]::new('guild', 'guild', [CompletionResultType]::ParameterValue, 'Register the slash commands for a specific guild')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'discord-gating-bot;discord;delete;global' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;discord;delete;guild' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help information')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Supress all logging')
+            break
+        }
+        'discord-gating-bot;discord;delete;help' {
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Define the verbosity of the application, repeat for more verbosity')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Supress all logging')

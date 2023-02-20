@@ -11,7 +11,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use colony_rs::{get_reputation_in_domain, U512};
-use futures::{future, stream, FutureExt, StreamExt};
+use futures::{stream, StreamExt};
 use hex;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -74,16 +74,16 @@ pub enum RegisterResponse {
 
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
-#[derive(Debug, Clone, Deserialize, Hash, Serialize)]
+#[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
 pub struct Gate {
     /// The colony address in which the reputation should be looked up
-    colony: String,
+    pub colony: String,
     /// The domain in which the reputation should be looked up  
-    domain: u64,
+    pub domain: u64,
     /// The reputation amount required to be granted the role
-    reputation: u32,
+    pub reputation: u32,
     /// The role to be granted
-    role_id: u64,
+    pub role_id: u64,
 }
 
 /// The main business logic instance. It holds a storage instance and a channel
