@@ -4,6 +4,13 @@
 
 use crate::config::CONFIG;
 use crate::controller::Gate;
+use chacha20poly1305::{
+    aead::generic_array::GenericArray,
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    ChaCha20Poly1305,
+};
+use hex;
+use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -174,5 +181,130 @@ impl Storage for SledUnencryptedStorage {
 
     fn remove_user(&mut self, user_id: &u64) {
         self.db.remove(user_id.to_be_bytes()).unwrap();
+    }
+}
+
+pub struct SledEncryptedStorage {
+    db: sled::Db,
+}
+
+impl Storage for SledEncryptedStorage {
+    type GateIter = std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Gate>;
+    type UserIter =
+        std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> (u64, String)>;
+    type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
+
+    fn new() -> Self {
+        let db_path = &CONFIG.wait().storage.directory;
+        let db = sled::open(db_path).expect("Failed to open database");
+        Self { db }
+    }
+
+    fn list_guilds(&self) -> Self::GuildIter {
+        self.db.tree_names().into_iter().filter_map(|t| {
+            if let Ok(bytes) = t.to_vec().try_into() {
+                Some(u64::from_be_bytes(bytes))
+            } else {
+                None
+            }
+        })
+    }
+
+    fn remove_guild(&mut self, guild_id: u64) {
+        let tree_name = guild_id.to_be_bytes().to_vec();
+        self.db.drop_tree(tree_name).unwrap();
+    }
+
+    fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
+        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
+        let gate_bytes = bincode::serialize(&gate).unwrap();
+        let mut h = DefaultHasher::new();
+        gate.hash(&mut h);
+        tree.insert(h.finish().to_be_bytes(), gate_bytes).unwrap();
+    }
+
+    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
+        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
+        let mut h = DefaultHasher::new();
+        gate.hash(&mut h);
+        tree.remove(h.finish().to_be_bytes()).unwrap();
+    }
+
+    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
+        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
+        tree.iter()
+            .map(|x| bincode::deserialize::<Gate>(&x.unwrap().1).unwrap())
+    }
+
+    fn get_user(&self, user_id: &u64) -> Option<String> {
+        let wallet = self.db.get(user_id.to_be_bytes()).unwrap();
+        if let Some(wallet) = wallet {
+            let encrypted: EncytpionWrapper = bincode::deserialize(&wallet).unwrap();
+            Some(encrypted.decrypt())
+        } else {
+            None
+        }
+    }
+
+    fn list_users(&self) -> Self::UserIter {
+        self.db.iter().map(|x| {
+            let (key, value) = x.unwrap();
+            debug!("key: {:?}, value: {:?}", key, value);
+            let key: u64 = u64::from_be_bytes(key.to_vec().try_into().unwrap());
+            let encrypted: EncytpionWrapper = bincode::deserialize(&value).unwrap();
+            let decrypted = encrypted.decrypt();
+            (key, decrypted)
+        })
+    }
+
+    fn add_user(&mut self, user_id: u64, wallet: String) {
+        let encrypted = EncytpionWrapper::new(wallet);
+        self.db
+            .insert(
+                user_id.to_be_bytes(),
+                bincode::serialize(&encrypted).unwrap(),
+            )
+            .unwrap();
+    }
+
+    fn contains_user(&self, user_id: &u64) -> bool {
+        self.db.contains_key(user_id.to_be_bytes()).unwrap()
+    }
+
+    fn remove_user(&mut self, user_id: &u64) {
+        self.db.remove(user_id.to_be_bytes()).unwrap();
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct EncytpionWrapper {
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+}
+
+impl EncytpionWrapper {
+    fn new(plaintext: String) -> Self {
+        let key_hex = &CONFIG.wait().storage.key;
+        let key_bytes = hex::decode(key_hex).unwrap();
+        let key = GenericArray::from_slice(&key_bytes);
+        let cipher = ChaCha20Poly1305::new(key);
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext.as_bytes())
+            .expect("encryption failure!");
+        Self {
+            nonce: nonce.to_vec(),
+            ciphertext: ciphertext.to_vec(),
+        }
+    }
+
+    fn decrypt(&self) -> String {
+        let key_hex = &CONFIG.wait().storage.key;
+        let key_bytes = hex::decode(key_hex).unwrap();
+        let key = GenericArray::from_slice(&key_bytes);
+        let cipher = ChaCha20Poly1305::new(key);
+        let nonce = GenericArray::from_slice(&self.nonce);
+        let plaintext = cipher.decrypt(&nonce, self.ciphertext.as_ref()).unwrap();
+        String::from_utf8(plaintext).unwrap()
     }
 }

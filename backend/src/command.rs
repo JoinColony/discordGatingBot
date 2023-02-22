@@ -9,7 +9,7 @@ use crate::controller::Controller;
 use crate::controller::Gate;
 use crate::discord;
 use crate::server;
-use crate::storage::{InMemoryStorage, SledUnencryptedStorage, Storage};
+use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
 use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
@@ -187,7 +187,10 @@ pub fn execute(cli: &Cli) {
                     info!("Using in-memory storage");
                     rt.spawn(Controller::<InMemoryStorage>::init())
                 }
-                StorageType::Encrypted => todo!("Implement encrypted storage"),
+                StorageType::Encrypted => {
+                    info!("Using encrypted storage");
+                    rt.spawn(Controller::<SledEncryptedStorage>::init())
+                }
             };
             rt.spawn(discord::start());
             if let Err(err) = rt.block_on(server::start()) {
