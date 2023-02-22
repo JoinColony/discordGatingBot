@@ -18,6 +18,8 @@ use std::{
 };
 use tracing::debug;
 
+/// The storage trait that defines the methods that need to be implemented
+/// for a storage backend
 pub trait Storage {
     type GateIter: Iterator<Item = Gate>;
     type UserIter: Iterator<Item = (u64, String)>;
@@ -35,6 +37,8 @@ pub trait Storage {
     fn remove_user(&mut self, user_id: &u64);
 }
 
+/// The in-memory storage backend which does not persist data to disk
+/// should only be used for testing
 pub struct InMemoryStorage {
     gates: HashMap<u64, Vec<Gate>>,
     users: HashMap<u64, String>,
@@ -97,6 +101,7 @@ impl Storage for InMemoryStorage {
     }
 }
 
+/// The sled storage backend which persists data to disk unencrypted
 pub struct SledUnencryptedStorage {
     db: sled::Db,
 }
@@ -184,6 +189,8 @@ impl Storage for SledUnencryptedStorage {
     }
 }
 
+/// The default sled storage backend which persists data to disk and encrypts
+/// the wallet addresses of users
 pub struct SledEncryptedStorage {
     db: sled::Db,
 }
@@ -276,6 +283,8 @@ impl Storage for SledEncryptedStorage {
     }
 }
 
+/// A convinience wrapper around the stored user wallet addresses, that
+/// also holds the nonce used for encryption
 #[derive(Debug, Serialize, Deserialize)]
 struct EncytpionWrapper {
     nonce: Vec<u8>,
