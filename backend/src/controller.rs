@@ -65,6 +65,14 @@ pub enum Message {
         wallet: String,
         response_tx: oneshot::Sender<RegisterResponse>,
     },
+    Unregister {
+        user_id: u64,
+        username: String,
+        response_tx: oneshot::Sender<UnRegisterResponse>,
+    },
+    RemovUser {
+        user_id: u64,
+    },
 }
 
 /// The response to a check message, sent back via the oneshot channel in the
@@ -81,6 +89,14 @@ pub enum CheckResponse {
 pub enum RegisterResponse {
     AlreadyRegistered,
     Success,
+}
+
+/// The response to a unregister message, sent back via the oneshot channel in the
+/// inbound message.
+#[derive(Debug)]
+pub enum UnRegisterResponse {
+    NotRegistered,
+    Unregister(String),
 }
 
 /// Represents a gate for a discord role issues by the /gate slash command.
@@ -246,6 +262,46 @@ impl<S: Storage + Send + 'static> Controller<S> {
                                 error!("Failed to send RegisterResponse::Success: {:?}", why);
                             };
                         }
+                    }
+                    Message::Unregister {
+                        user_id,
+                        username,
+                        response_tx,
+                    } => {
+                        debug!("Unregistering user {}", user_id);
+
+                        match controller.storage.get_user(&user_id) {
+                            None => {
+                                if let Err(why) =
+                                    response_tx.send(UnRegisterResponse::NotRegistered)
+                                {
+                                    error!(
+                                        "Failed to send UnregisterResponse::NotRegistered: {:?}",
+                                        why
+                                    );
+                                };
+                            }
+                            Some(_) => {
+                                let url = CONFIG.wait().server.url.clone();
+                                let session = Session::new(user_id, username);
+                                let url = format!(
+                                    "{}/unregister/{}/{}",
+                                    url,
+                                    urlencoding::encode(&session.username),
+                                    session.encode()
+                                );
+                                if let Err(why) =
+                                    response_tx.send(UnRegisterResponse::Unregister(url))
+                                {
+                                    error!("Failed to send CheckResponse::Register: {:?}", why);
+                                };
+                                continue;
+                            }
+                        };
+                    }
+                    Message::RemovUser { user_id } => {
+                        debug!("Removing user {}", user_id);
+                        controller.storage.remove_user(&user_id);
                     }
                 }
             }

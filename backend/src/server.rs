@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 use urlencoding;
 
 static REGISTRATION_FORM: &'static str = include_str!("../static/registration.html");
+static UNREGISTRATION_FORM: &'static str = include_str!("../static/unregistration.html");
 static INDEX: &'static str = include_str!("../static/index.html");
 static SUCCESS: &'static str = include_str!("../static/registration-success.html");
 static EXPIRED: &'static str = include_str!("../static/registration-expired.html");
@@ -23,6 +24,69 @@ static ERROR: &'static str = include_str!("../static/error.html");
 static SIGN_SCRIPT: &'static str = include_str!("../../frontend/dist/index.js");
 
 const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your Discord username {username} with your wallet address. Session ID: {session}";
+
+pub async fn start() -> std::io::Result<()> {
+    let host = CONFIG.wait().server.host.clone();
+    let port = CONFIG.wait().server.port;
+    info!("Starting server on {}:{}", host, port);
+    HttpServer::new(|| {
+        App::new()
+            .service(index)
+            .service(favicon)
+            .service(script)
+            .service(registration_form)
+            .service(register)
+            .service(unregistration_form)
+            .service(unregister)
+    })
+    .bind((host, port))?
+    .run()
+    .await
+}
+
+#[get("/")]
+async fn index() -> impl Responder {
+    debug!("Received index request");
+    HttpResponse::Ok().body(INDEX)
+}
+
+#[get("/index.js")]
+async fn script() -> impl Responder {
+    debug!("Received script request");
+    HttpResponse::Ok().body(SIGN_SCRIPT)
+}
+
+#[get("/favicon.ico")]
+async fn favicon() -> impl Responder {
+    debug!("Received favicon request");
+    HttpResponse::Ok().body(FAVICON)
+}
+
+#[get("/register/{username}/{session}")]
+async fn registration_form(path: web::Path<(String, String)>) -> impl Responder {
+    debug!("Received registration form request for session {}", path.1);
+    let (username_url, session_str) = path.into_inner();
+    let session = match Session::from_str(&session_str) {
+        Ok(session) => session,
+        Err(_) => return HttpResponse::BadRequest().body(INVALID_SESSION),
+    };
+    if session.expired() {
+        return HttpResponse::BadRequest().body(EXPIRED);
+    }
+    let username = match urlencoding::decode(&username_url) {
+        Ok(username) => username,
+        Err(_) => return HttpResponse::BadRequest().body("Decoding error"),
+    };
+
+    if username != session.username {
+        error!(
+            "Invalid username for session {} != {}",
+            username, session.username
+        );
+        return HttpResponse::BadRequest().body("Invalid Username");
+    }
+    HttpResponse::Ok().body(REGISTRATION_FORM)
+}
 
 #[post("/register/{username}/{session}")]
 async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) -> impl Responder {
@@ -112,9 +176,9 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
     }
 }
 
-#[get("/register/{username}/{session}")]
-async fn registration_form(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received registration form request for session {}", path.1);
+#[get("/unregister/{username}/{session}")]
+async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responder {
+    debug!("Received unregister form request for session {}", path.1);
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -135,42 +199,49 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
         );
         return HttpResponse::BadRequest().body("Invalid Username");
     }
-    HttpResponse::Ok().body(REGISTRATION_FORM)
+    HttpResponse::Ok().body(UNREGISTRATION_FORM)
 }
 
-#[get("/index.js")]
-async fn script() -> impl Responder {
-    debug!("Received script request");
-    HttpResponse::Ok().body(SIGN_SCRIPT)
-}
+#[post("/unregister/{username}/{session}")]
+async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
+    debug!("Received unregistration request for session: {}", path.1);
+    let (username_url, session_str) = path.into_inner();
+    let session = match Session::from_str(&session_str) {
+        Ok(session) => session,
+        Err(_) => return HttpResponse::BadRequest().body(INVALID_SESSION),
+    };
+    if session.expired() {
+        debug!("Session {} expired", session_str);
+        return HttpResponse::BadRequest().body(EXPIRED);
+    }
+    let username = match urlencoding::decode(&username_url) {
+        Ok(username) => username,
+        Err(_) => {
+            debug!("Failed to decode username {}", username_url);
+            return HttpResponse::BadRequest().body("Decoding username failed");
+        }
+    };
 
-#[get("/favicon.ico")]
-async fn favicon() -> impl Responder {
-    debug!("Received favicon request");
-    HttpResponse::Ok().body(FAVICON)
-}
+    if username != session.username {
+        warn!(
+            "Username {} does not match session username {}",
+            username, session.username
+        );
+        return HttpResponse::BadRequest().body(INVALID_SESSION);
+    }
 
-#[get("/")]
-async fn index() -> impl Responder {
-    debug!("Received index request");
-    HttpResponse::Ok().body(INDEX)
-}
+    let message = Message::RemovUser {
+        user_id: session.user_id,
+    };
 
-pub async fn start() -> std::io::Result<()> {
-    let host = CONFIG.wait().server.host.clone();
-    let port = CONFIG.wait().server.port;
-    info!("Starting server on {}:{}", host, port);
-    HttpServer::new(|| {
-        App::new()
-            .service(index)
-            .service(favicon)
-            .service(script)
-            .service(register)
-            .service(registration_form)
-    })
-    .bind((host, port))?
-    .run()
-    .await
+    CONTROLLER_CHANNEL
+        .get()
+        .unwrap()
+        .send(message)
+        .await
+        .unwrap();
+
+    HttpResponse::Ok().body(SUCCESS)
 }
 
 #[derive(Deserialize)]

@@ -4,7 +4,7 @@
 use std::str::FromStr;
 
 use crate::config::CONFIG;
-use crate::controller::{self, CheckResponse, CONTROLLER_CHANNEL};
+use crate::controller::{self, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL};
 use futures::{stream, StreamExt};
 use serenity::builder::CreateApplicationCommand;
 use serenity::model::prelude::RoleId;
@@ -58,6 +58,7 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
             .create_application_command(make_gate_command)
             .create_application_command(make_list_gates_command)
             .create_application_command(make_check_command)
+            .create_application_command(make_checkout_command)
     })
     .await;
     if let Err(why) = command_result {
@@ -100,8 +101,17 @@ pub async fn register_global_slash_commands() {
     if let Err(why) = Command::create_global_application_command(&http, make_gate_command).await {
         error!("Error creating global slash command gate: {:?}", why);
     }
+    if let Err(why) =
+        Command::create_global_application_command(&http, make_list_gates_command).await
+    {
+        error!("Error creating global slash command list gates: {:?}", why);
+    }
     if let Err(why) = Command::create_global_application_command(&http, make_check_command).await {
         error!("Error creating global slash command check: {:?}", why);
+    }
+    if let Err(why) = Command::create_global_application_command(&http, make_checkout_command).await
+    {
+        error!("Error creating global slash command checkout: {:?}", why);
     }
 }
 
@@ -142,6 +152,7 @@ impl EventHandler for Handler {
                 "gate" => gate_interaction_response(&command, &ctx).await,
                 "list_gates" => list_gates_interaction_response(&command, &ctx).await,
                 "check" => check_interaction_response(&command, &ctx).await,
+                "checkout" => checkout_interaction_response(&command, &ctx).await,
                 _ => unknown_interaction_response(&command, &ctx).await,
             };
             if let Err(why) = interaction_response {
@@ -312,6 +323,27 @@ async fn check_interaction_response(
     }
 }
 
+async fn checkout_interaction_response(
+    command: &ApplicationCommandInteraction,
+    ctx: &Context,
+) -> Result<(), SerenityError> {
+    debug!("Received checkout interaction");
+    let (tx, rx) = oneshot::channel();
+    let message = controller::Message::Unregister {
+        user_id: command.user.id.into(),
+        username: command.user.name.clone(),
+        response_tx: tx,
+    };
+    if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
+        error!("Error sending message to controller: {:?}", err);
+    }
+    let response = rx.await.unwrap();
+    match response {
+        UnRegisterResponse::NotRegistered => respond(ctx, command, "You are not registered").await,
+        UnRegisterResponse::Unregister(url) => unregister_user(ctx, command, &url).await,
+    }
+}
+
 async fn unknown_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
@@ -338,6 +370,26 @@ async fn register_user(
         .unwrap();
     respond(ctx, command, "You need to register first, check your DMs").await
 }
+
+async fn unregister_user(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+    url: &str,
+) -> Result<(), SerenityError> {
+    debug!("Unregistering user with URL: {}", url);
+    let message = format!(
+        "☠️ ☠️ ☠️  To unregister your wallet from your discord user follow this link \
+        {} and follow the instructions. ☠️ ☠️ ☠️",
+        url
+    );
+    command
+        .user
+        .direct_message(&ctx.http, |m| m.content(message))
+        .await
+        .unwrap();
+    respond(ctx, command, "You need to register first, check your DMs").await
+}
+
 async fn grant_roles(
     ctx: &Context,
     command: &ApplicationCommandInteraction,
@@ -424,8 +476,17 @@ fn make_list_gates_command(
     debug!("Creating list gates slash command");
     command
         .name("list_gates")
-        .description("List all the roles gated by reputation in this server")
+        .description(
+            "Lists gates. ⚠️ REVEALS GATES TO THE CHANNEL. IF YOU DON'T WANT THAT, USE IT IN A PRIVATE CHANNEL ⚠️",
+        )
         .default_member_permissions(Permissions::ADMINISTRATOR)
+}
+
+fn make_checkout_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    debug!("Creating check slash command");
+    command
+        .name("checkout")
+        .description("Deregister your wallet address from your discord user")
 }
 
 fn make_check_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
