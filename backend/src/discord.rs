@@ -387,7 +387,7 @@ async fn unregister_user(
         .direct_message(&ctx.http, |m| m.content(message))
         .await
         .unwrap();
-    respond(ctx, command, "You need to register first, check your DMs").await
+    respond(ctx, command, "Check your DMs for deregistration").await
 }
 
 async fn grant_roles(
@@ -467,7 +467,7 @@ fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateAppli
                 .kind(CommandOptionType::Role)
                 .required(true)
         })
-        .default_member_permissions(Permissions::ADMINISTRATOR)
+        .default_member_permissions(Permissions::MANAGE_GUILD)
 }
 
 fn make_list_gates_command(
@@ -479,7 +479,7 @@ fn make_list_gates_command(
         .description(
             "Lists gates. ⚠️ REVEALS GATES TO THE CHANNEL. IF YOU DON'T WANT THAT, USE IT IN A PRIVATE CHANNEL ⚠️",
         )
-        .default_member_permissions(Permissions::ADMINISTRATOR)
+        .default_member_permissions(Permissions::MANAGE_GUILD)
 }
 
 fn make_checkout_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
