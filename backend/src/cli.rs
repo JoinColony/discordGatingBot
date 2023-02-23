@@ -220,7 +220,7 @@ pub enum GateCmd {
         domain_id: u64,
         /// The percentage of reputation needed to get the role
         #[clap(value_hint = ValueHint::Other)]
-        reputation: u32,
+        reputation: u8,
         /// The discord role id
         #[clap(value_hint = ValueHint::Other)]
         role_id: u64,
@@ -238,7 +238,7 @@ pub enum GateCmd {
         domain_id: u64,
         /// The percentage of reputation needed to get the role
         #[clap(value_hint = ValueHint::Other)]
-        reputation: u32,
+        reputation: u8,
         /// The discord role id
         #[clap(value_hint = ValueHint::Other)]
         role_id: u64,

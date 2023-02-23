@@ -138,6 +138,8 @@ impl Storage for SledUnencryptedStorage {
         let gate_bytes = bincode::serialize(&gate).unwrap();
         let mut h = DefaultHasher::new();
         gate.hash(&mut h);
+        let hash = h.finish();
+        debug!("Adding gate {:?} with hash {}", gate, hash);
         tree.insert(h.finish().to_be_bytes(), gate_bytes).unwrap();
     }
 
@@ -145,7 +147,9 @@ impl Storage for SledUnencryptedStorage {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
         let mut h = DefaultHasher::new();
         gate.hash(&mut h);
-        tree.remove(h.finish().to_be_bytes()).unwrap();
+        let hash = h.finish().to_be_bytes();
+        debug!("Removing gate {:?} with hash {}", gate, hex::encode(hash));
+        tree.remove(hash).unwrap();
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {

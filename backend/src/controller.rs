@@ -36,12 +36,23 @@ static SESSION_KEY: OnceCell<Vec<u8>> = OnceCell::new();
 /// possible message.
 #[derive(Debug)]
 pub enum Message {
-    Gate {
+    List {
+        guild_id: u64,
+        response: oneshot::Sender<Vec<Gate>>,
+    },
+    Delete {
+        guild_id: u64,
         colony: String,
         domain: u64,
-        reputation: u32,
+        reputation: u8,
         role_id: u64,
+    },
+    Gate {
         guild_id: u64,
+        colony: String,
+        domain: u64,
+        reputation: u8,
+        role_id: u64,
     },
     Check {
         user_id: u64,
@@ -81,7 +92,7 @@ pub struct Gate {
     /// The domain in which the reputation should be looked up  
     pub domain: u64,
     /// The reputation amount required to be granted the role
-    pub reputation: u32,
+    pub reputation: u8,
     /// The role to be granted
     pub role_id: u64,
 }
@@ -123,6 +134,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
             .expect("Failed to set controller channel");
         tokio::spawn(async move {
             while let Some(message) = controller.message_rx.recv().await {
+                debug!("Received message: {:?}", message);
                 match message {
                     Message::Gate {
                         colony,
@@ -137,7 +149,32 @@ impl<S: Storage + Send + 'static> Controller<S> {
                             reputation,
                             role_id,
                         };
+                        debug!("Adding gate: {:?}", gate);
                         controller.storage.add_gate(&guild_id, gate);
+                    }
+                    Message::List { guild_id, response } => {
+                        debug!("Received list request for guild {}", guild_id);
+                        let gates = controller.storage.list_gates(&guild_id).collect();
+                        debug!("Sending list response gates {:?}", gates);
+                        if let Err(why) = response.send(gates) {
+                            error!("Failed to send list response: {:?}", why);
+                        }
+                    }
+                    Message::Delete {
+                        guild_id,
+                        colony,
+                        domain,
+                        reputation,
+                        role_id,
+                    } => {
+                        let gate = Gate {
+                            colony,
+                            domain,
+                            reputation,
+                            role_id,
+                        };
+                        debug!("Deleting gate: {:?}", gate);
+                        controller.storage.remove_gate(&guild_id, gate);
                     }
                     Message::Check {
                         user_id,
@@ -237,7 +274,7 @@ impl Iterator for WalletIterator {
 
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
-async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u32 {
+async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u8 {
     debug!(
         "Checking reputation for wallet {} in colony {} domain {}",
         wallet, colony, domain
@@ -265,7 +302,7 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u32 {
     let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
     let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
     let reputation = user_reputation * U512::from(100) / base_reputation;
-    reputation.as_u32()
+    reputation.as_u32() as u8
 }
 
 /// This represents a session for a user that has not yet registered their

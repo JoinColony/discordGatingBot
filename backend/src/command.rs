@@ -14,7 +14,6 @@ use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use std::boxed::Box;
 use tokio;
 use tracing::info;
 #[cfg(feature = "completion")]
