@@ -1,0 +1,6 @@
+<a href="<%= button.as_ref().unwrap().link %>" class="div-block-10 w-inline-block">
+    <div class="text-block-11">
+        <%= button.as_ref().unwrap().text %>
+    </div>
+</a>
+

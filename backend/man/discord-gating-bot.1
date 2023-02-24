@@ -4,7 +4,7 @@
 .SH NAME
 discord\-gating\-bot \- A discord bot that can grant discord roles on a server based on reputation in a specific colony
 .SH SYNOPSIS
-\fBdiscord\-gating\-bot\fR [\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fB\-c\fR|\fB\-\-config\-file\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-t\fR|\fB\-\-token\fR] [\fB\-h\fR|\fB\-\-host\fR] [\fB\-u\fR|\fB\-\-url\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-d\fR|\fB\-\-directory\fR] [\fB\-s\fR|\fB\-\-storage\-type\fR] [\fB\-k\fR|\fB\-\-key\fR] [\fIsubcommands\fR]
+\fBdiscord\-gating\-bot\fR [\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fB\-c\fR|\fB\-\-config\-file\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-t\fR|\fB\-\-token\fR] [\fB\-i\fR|\fB\-\-invite\-url\fR] [\fB\-h\fR|\fB\-\-host\fR] [\fB\-u\fR|\fB\-\-url\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-d\fR|\fB\-\-directory\fR] [\fB\-s\fR|\fB\-\-storage\-type\fR] [\fB\-k\fR|\fB\-\-key\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 .PP
 Running the bot without any sub command will start an http server,
@@ -34,6 +34,9 @@ Supress all logging
 .TP
 \fB\-t\fR, \fB\-\-token\fR=\fITOKEN\fR
 The discord bot token
+.TP
+\fB\-i\fR, \fB\-\-invite\-url\fR=\fIINVITE_URL\fR
+The discor bot invitation url
 .TP
 \fB\-h\fR, \fB\-\-host\fR=\fIHOST\fR
 The address to listen on

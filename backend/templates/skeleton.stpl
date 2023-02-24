@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Colony Discord Gating Bot</title>
+        <link href="https://assets.website-files.com/61840fafb9a4c433c1470856/css/colony-website-2021-754971e57704bddb1b7.93ace04d0.min.css" rel="stylesheet" type="text/css"/>
+    <% if index_script.is_some() { %>
+    <script src="<%= index_script.unwrap() %>" type="text/javascript"></script>
+    <% } %>
+    </head>
+    <body>
+        <div class="div-block-46">
+            <img src="https://assets.website-files.com/61840fafb9a4c433c1470856/618d621728d1a01e9e3e8e6c_image%2050.svg" loading="lazy" alt="" class="image-31">
+            <p class="colony-medium-paragraph descriptionn">
+               <%- paragraph_text %>
+            </p>
+            <% if button.is_some() { %>
+                <% include!("./button.stpl"); %>
+            <% } %>
+
+            <% if form_input.is_some() { %>
+                <% include!("./form_input.stpl"); %>
+            <% } %>
+        </div>
+    </body>
+
+</html>

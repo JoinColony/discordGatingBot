@@ -1,0 +1,3 @@
+<form action="<%= form_input.as_ref().unwrap().action %>" method="<%= form_input.as_ref().unwrap().method %>">
+    <input type="submit" value="<%= form_input.as_ref().unwrap().title %>" data-wait="Please wait..." class="button-2 w-button">
+</form>

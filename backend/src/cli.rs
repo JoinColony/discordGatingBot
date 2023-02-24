@@ -277,6 +277,9 @@ pub struct CliDiscordConfig {
     /// The discord bot token
     #[clap(short, long)]
     pub token: Option<String>,
+    /// The discor bot invitation url
+    #[clap(short, long)]
+    pub invite_url: Option<String>,
 }
 
 /// This structs contains the sub configuration for the http server options.

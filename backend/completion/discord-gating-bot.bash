@@ -67,7 +67,7 @@ _discord-gating-bot() {
 
     case "${cmd}" in
         discord__gating__bot)
-            opts="-V -c -v -q -t -h -u -p -d -s -k --help --version --config-file --verbose --quiet --token --host --url --port --directory --storage-type --key config storage discord help"
+            opts="-V -c -v -q -t -i -h -u -p -d -s -k --help --version --config-file --verbose --quiet --token --invite-url --host --url --port --directory --storage-type --key config storage discord help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -86,6 +86,14 @@ _discord-gating-bot() {
                     return 0
                     ;;
                 -t)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --invite-url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -i)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

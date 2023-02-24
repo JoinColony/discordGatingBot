@@ -19,6 +19,8 @@ _discord-gating-bot() {
 '--config-file=[Sets a custom config file]:FILE:_files' \
 '-t+[The discord bot token]:TOKEN: ' \
 '--token=[The discord bot token]:TOKEN: ' \
+'-i+[The discor bot invitation url]:INVITE_URL: ' \
+'--invite-url=[The discor bot invitation url]:INVITE_URL: ' \
 '-h+[The address to listen on]:HOST: ' \
 '--host=[The address to listen on]:HOST: ' \
 '-u+[The base url under which the server is reachable]:URL: ' \

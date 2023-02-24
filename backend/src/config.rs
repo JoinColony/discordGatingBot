@@ -96,6 +96,7 @@ fn get_config_hirarchy(
         },
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
+            invite_url: raw_cli_cfg.discord.invite_url.clone(),
         },
         server: PartialServerConf {
             url: raw_cli_cfg.server.url.clone(),
@@ -184,4 +185,7 @@ pub struct DiscordConfig {
     /// The discord bot token
     #[config(env = "CLNY_DISCORD_TOKEN", default = "")]
     pub token: String,
+    /// The discor bot invitation url
+    #[config(env = "CLNY_DISCORD_INVITATION_URL", default = "")]
+    pub invite_url: String,
 }

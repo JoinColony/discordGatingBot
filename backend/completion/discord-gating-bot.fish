@@ -1,5 +1,6 @@
 complete -c discord-gating-bot -n "__fish_use_subcommand" -s c -l config-file -d 'Sets a custom config file' -r -F
 complete -c discord-gating-bot -n "__fish_use_subcommand" -s t -l token -d 'The discord bot token' -r
+complete -c discord-gating-bot -n "__fish_use_subcommand" -s i -l invite-url -d 'The discor bot invitation url' -r
 complete -c discord-gating-bot -n "__fish_use_subcommand" -s h -l host -d 'The address to listen on' -r
 complete -c discord-gating-bot -n "__fish_use_subcommand" -s u -l url -d 'The base url under which the server is reachable' -r
 complete -c discord-gating-bot -n "__fish_use_subcommand" -s p -l port -d 'The port to listen on' -r

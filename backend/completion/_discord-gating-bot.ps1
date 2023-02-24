@@ -25,6 +25,8 @@ Register-ArgumentCompleter -Native -CommandName 'discord-gating-bot' -ScriptBloc
             [CompletionResult]::new('--config-file', 'config-file', [CompletionResultType]::ParameterName, 'Sets a custom config file')
             [CompletionResult]::new('-t', 't', [CompletionResultType]::ParameterName, 'The discord bot token')
             [CompletionResult]::new('--token', 'token', [CompletionResultType]::ParameterName, 'The discord bot token')
+            [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'The discor bot invitation url')
+            [CompletionResult]::new('--invite-url', 'invite-url', [CompletionResultType]::ParameterName, 'The discor bot invitation url')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'The address to listen on')
             [CompletionResult]::new('--host', 'host', [CompletionResultType]::ParameterName, 'The address to listen on')
             [CompletionResult]::new('-u', 'u', [CompletionResultType]::ParameterName, 'The base url under which the server is reachable')

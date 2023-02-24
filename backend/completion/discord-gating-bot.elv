@@ -22,6 +22,8 @@ set edit:completion:arg-completer[discord-gating-bot] = {|@words|
             cand --config-file 'Sets a custom config file'
             cand -t 'The discord bot token'
             cand --token 'The discord bot token'
+            cand -i 'The discor bot invitation url'
+            cand --invite-url 'The discor bot invitation url'
             cand -h 'The address to listen on'
             cand --host 'The address to listen on'
             cand -u 'The base url under which the server is reachable'
