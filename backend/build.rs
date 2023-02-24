@@ -24,6 +24,17 @@ fn main() {
     create_shell_completions(cli);
     // rendering readme
     render_readme();
+    // build frontend code
+    build_frontend();
+}
+
+fn build_frontend() {
+    process::Command::new("npm")
+        .current_dir("../frontend")
+        .arg("run")
+        .arg("build")
+        .output()
+        .expect("failed to execute process");
 }
 
 // render readme

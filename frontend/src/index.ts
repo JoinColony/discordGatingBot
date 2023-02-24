@@ -9,6 +9,7 @@ const start = async () => {
   await provider.send('eth_requestAccounts', []);
 
   const signer = provider.getSigner();
+  const address = await signer.getAddress();
 
   const pathSplit = window.location.pathname.split('/');
   const username = pathSplit[2]
@@ -23,6 +24,7 @@ const start = async () => {
     },
     body: JSON.stringify({
       signature,
+      address,
     })
   });
 

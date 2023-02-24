@@ -142,19 +142,14 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
     let message = REGISTRATION_MESSAGE
         .replace("{username}", &session.username)
         .replace("{session}", &session_str);
-
-    let wallet = match signature.recover(message.clone()) {
+    let wallet = match colony_rs::Address::from_str(&data.address) {
         Ok(wallet) => wallet,
         Err(_) => {
-            warn!("Failed to recover wallet from signature");
-            let invalid_signature = Skeleton::invalid_signature();
-            return HttpResponse::BadRequest().body(invalid_signature.render_once().unwrap());
+            warn!("Invalid wallet {}", data.address);
+            let invalid_wallet = Skeleton::invalid_address();
+            return HttpResponse::BadRequest().body(invalid_wallet.render_once().unwrap());
         }
     };
-    debug!(
-        "Recovered wallet {:?} from signature: {:?} and message: {}",
-        wallet, &data.signature, message
-    );
 
     if signature.verify(message.clone(), wallet).is_err() {
         warn!(
@@ -285,10 +280,11 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
 #[derive(Deserialize)]
 struct JsonData {
     signature: String,
+    address: String,
 }
 
 #[derive(TemplateOnce)]
-#[template(path = "skeleton.stpl", escape = false)]
+#[template(path = "skeleton.stpl")]
 struct Skeleton {
     index_script: Option<String>,
     paragraph_text: String,
@@ -317,7 +313,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
             "#.to_string(),
             button: Some(Button {
                 text: "Invite Bot".to_string(),
-                link: link,
+                link,
             }),
             form_input: None,
         }
@@ -370,6 +366,15 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
         }
     }
 
+    fn invalid_address() -> Self {
+        Skeleton {
+            index_script: None,
+            paragraph_text: "Invalid address".to_string(),
+            button: None,
+            form_input: None,
+        }
+    }
+
     fn register_success() -> Self {
         Skeleton {
             index_script: None,
@@ -401,7 +406,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
         Skeleton {
             index_script: None,
             paragraph_text: "Welcome to the unregistration to the colony gating bot.\
-            Here you can unregister your wallet address with metamask <br />"
+            Here you can unregister your wallet address <br />"
                 .to_string(),
             button: None,
             form_input: Some(FormInput {
@@ -421,5 +426,32 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
             button: None,
             form_input: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn recover_from_ok_signature() {
+        let address =
+            colony_rs::Address::from_str("0xcB313f361847e245954FD338Cb21b5F4225b17d1").unwrap();
+        let message = "Please sign this message to connect your Discord username hmuendel with your wallet address. Session ID: b2a76f67b6c1bdf61cea3b2c.046c5bfeea4351a17b8be03a516380a13ebd1396d69a57ff306a3249fc6d0763d3071171cda9d1f6250e7a3b82344fccd85c7ca92da0";
+        let signature_str = "0x092e15f49b64ae802fa4d5e8d2439e92a174b23dabe99650191f1028377d4e7711952f199bf84f5e49868b9db68ef2ce1f7ab5dbeb34afa6393d517afc42cd251c";
+        let signature = Signature::from_str(signature_str).unwrap();
+        let recovered_address = signature.recover(message).unwrap();
+        assert_eq!(address, recovered_address);
+    }
+
+    #[test]
+    fn recover_from_bad_signature() {
+        let address =
+            colony_rs::Address::from_str("0xcB313f361847e245954FD338Cb21b5F4225b17d1").unwrap();
+        let message = "obviously wrong message";
+        let signature_str = "0x092e15f49b64ae802fa4d5e8d2439e92a174b23dabe99650191f1028377d4e7711952f199bf84f5e49868b9db68ef2ce1f7ab5dbeb34afa6393d517afc42cd251c";
+        let signature = Signature::from_str(signature_str).unwrap();
+        let recovered_address = signature.recover(message).unwrap();
+        assert_ne!(address, recovered_address);
     }
 }
