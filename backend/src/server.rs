@@ -349,7 +349,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
     fn registration_form() -> Self {
         Skeleton {
             index_script: Some("/index.js".to_string()),
-            paragraph_text: "Welcome to the registration to the colony gating bot.\
+            paragraph_text: "Welcome to the registration to the colony gating bot. \
             Here you can register your wallet address with metamask <br />"
                 .to_string(),
             button: None,

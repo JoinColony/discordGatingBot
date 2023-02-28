@@ -94,6 +94,7 @@ fn get_config_hirarchy(
             (3, _) => Some(LogLevel::Debug),
             _ => Some(LogLevel::Trace),
         },
+        precision: raw_cli_cfg.precision,
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
             invite_url: raw_cli_cfg.discord.invite_url.clone(),
@@ -138,15 +139,22 @@ pub fn print_template() {
 /// it is constructed from the partial configurations from different sources
 #[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
 pub struct GlobalConfig {
+    /// The path to the configuration file
     #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
     pub config_file: PathBuf,
+    /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
     #[config(env = "CLNY_VERBOSITY", default = "Error")]
     pub verbosity: LogLevel,
-
+    /// The precision of the reputation percentage before it's been cut off
+    #[config(env = "CLNY_REPUTATION_PRECISION", default = 2)]
+    pub precision: u8,
+    /// The discord configuration
     #[config(nested)]
     pub discord: DiscordConfig,
+    /// The configuration of the https server used for the registration
     #[config(nested)]
     pub server: ServerConfig,
+    /// The configuration of the storage backend and encryption
     #[config(nested)]
     pub storage: StorageConfig,
 }

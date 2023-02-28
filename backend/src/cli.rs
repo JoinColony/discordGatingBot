@@ -220,7 +220,7 @@ pub enum GateCmd {
         domain_id: u64,
         /// The percentage of reputation needed to get the role
         #[clap(value_hint = ValueHint::Other)]
-        reputation: u8,
+        reputation: u32,
         /// The discord role id
         #[clap(value_hint = ValueHint::Other)]
         role_id: u64,
@@ -238,7 +238,7 @@ pub enum GateCmd {
         domain_id: u64,
         /// The percentage of reputation needed to get the role
         #[clap(value_hint = ValueHint::Other)]
-        reputation: u8,
+        reputation: u32,
         /// The discord role id
         #[clap(value_hint = ValueHint::Other)]
         role_id: u64,
@@ -261,6 +261,9 @@ pub struct CliConfig {
     #[clap(long, short, global(true), conflicts_with = "verbose")]
     /// Supress all logging
     pub quiet: bool,
+    /// The precision of the reputation percentage before it's been cut off
+    #[clap(long, short)]
+    pub precision: Option<u8>,
     #[clap(flatten)]
     pub discord: CliDiscordConfig,
     #[clap(flatten)]
@@ -288,13 +291,13 @@ pub struct CliDiscordConfig {
 #[clap()]
 pub struct CliServerConfig {
     /// The address to listen on
-    #[clap(short, long)]
+    #[clap(short)]
     pub host: Option<String>,
     /// The base url under which the server is reachable
     #[clap(short, long)]
     pub url: Option<String>,
     /// The port to listen on
-    #[clap(short, long)]
+    #[clap(long)]
     pub port: Option<u16>,
 }
 

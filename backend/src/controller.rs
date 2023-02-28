@@ -44,14 +44,14 @@ pub enum Message {
         guild_id: u64,
         colony: String,
         domain: u64,
-        reputation: u8,
+        reputation: u32,
         role_id: u64,
     },
     Gate {
         guild_id: u64,
         colony: String,
         domain: u64,
-        reputation: u8,
+        reputation: u32,
         role_id: u64,
     },
     Check {
@@ -108,7 +108,7 @@ pub struct Gate {
     /// The domain in which the reputation should be looked up  
     pub domain: u64,
     /// The reputation amount required to be granted the role
-    pub reputation: u8,
+    pub reputation: u32,
     /// The role to be granted
     pub role_id: u64,
 }
@@ -221,23 +221,32 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         debug!("User {} has wallet {}", user_id, wallet);
                         let wallet_iter = WalletIterator::new(wallet);
                         let zipped_iter = wallet_iter.zip(gates);
-                        let granted_roles: Vec<_> = stream::iter(zipped_iter)
+                        // TODO: make this concurrent
+                        let mut granted_roles: Vec<_> = stream::iter(zipped_iter)
                             .filter_map(|(wallet_arc, gate)| async move {
                                 debug!("Checking gate {:?} with wallet {}", gate, *wallet_arc);
-                                let reputation =
-                                    check_reputation(&gate.colony, gate.domain, &wallet_arc).await;
-                                debug!(
-                                    "Reputation in domain {} of colony {} is {}",
-                                    gate.domain, gate.colony, reputation
-                                );
-                                if reputation >= gate.reputation {
-                                    Some(gate.role_id)
+                                if let Ok(reputation) =
+                                    check_reputation(&gate.colony, gate.domain, &wallet_arc).await
+                                {
+                                    debug!(
+                                        "Reputation in domain {} of colony {} is {}",
+                                        gate.domain, gate.colony, reputation
+                                    );
+                                    if reputation >= gate.reputation {
+                                        Some(gate.role_id)
+                                    } else {
+                                        None
+                                    }
                                 } else {
                                     None
                                 }
                             })
                             .collect::<Vec<_>>()
                             .await;
+                        debug!("Granted roles: {:?}", granted_roles);
+                        granted_roles.sort();
+                        granted_roles.dedup();
+                        debug!("Granted roles deduped: {:?}", granted_roles);
                         if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
                             error!("Failed to send CheckResponse::Grant: {:?}", why);
                         };
@@ -330,7 +339,7 @@ impl Iterator for WalletIterator {
 
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
-async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u8 {
+async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> Result<u32, String> {
     debug!(
         "Checking reputation for wallet {} in colony {} domain {}",
         wallet, colony, domain
@@ -344,7 +353,7 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u8 {
     {
         reputation.reputation_amount
     } else {
-        "0".to_string()
+        return Err("Failed to get base reputation".to_string());
     };
 
     debug!("Base reputation: {}", base_reputation_str);
@@ -355,10 +364,15 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> u8 {
     } else {
         "0".to_string()
     };
+    // Since we have big ints for the reputation and a reputation threshold
+    // in percent, we need to do some math to get the correct result
+    // also the precision of the reputation threshold is variable
     let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
     let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
-    let reputation = user_reputation * U512::from(100) / base_reputation;
-    reputation.as_u32() as u8
+    let precision = CONFIG.wait().precision;
+    let factor = U512::from(10).pow(U512::from(precision)) * U512::from(100);
+    let reputation = user_reputation * factor / base_reputation;
+    Ok(reputation.as_u32())
 }
 
 /// This represents a session for a user that has not yet registered their
