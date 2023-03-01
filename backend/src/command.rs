@@ -5,8 +5,7 @@
 use crate::cli::*;
 use crate::config;
 use crate::config::CONFIG;
-use crate::controller::Controller;
-use crate::controller::Gate;
+use crate::controller::{self, Controller, Gate};
 use crate::discord;
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
@@ -15,7 +14,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use tokio;
-use tracing::info;
+use tracing::{error, info};
 #[cfg(feature = "completion")]
 use {clap::CommandFactory, clap_complete::generate, std::io};
 
@@ -146,23 +145,14 @@ pub fn execute(cli: &Cli) {
             };
         }
 
-        Some(Commands::Storage(StorageCmd::Gate(GateCmd::List {
-            guild,
-            start,
-            end,
-            all_guilds,
-        }))) => {
+        Some(Commands::Storage(StorageCmd::Gate(GateCmd::List { guild, start, end }))) => {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let storage = SledUnencryptedStorage::new();
-                    let guilds = if *all_guilds {
-                        storage.list_guilds().collect::<Vec<u64>>()
+                    let guilds = if let Some(guild) = guild {
+                        vec![*guild]
                     } else {
-                        if let Some(guild) = guild {
-                            vec![*guild]
-                        } else {
-                            vec![]
-                        }
+                        storage.list_guilds().collect::<Vec<u64>>()
                     };
                     for guild in guilds {
                         println!("\nGuild: {}", guild);
@@ -177,14 +167,10 @@ pub fn execute(cli: &Cli) {
                 }
                 StorageType::Encrypted => {
                     let storage = SledEncryptedStorage::new();
-                    let guilds = if *all_guilds {
-                        storage.list_guilds().collect::<Vec<u64>>()
+                    let guilds = if let Some(guild) = guild {
+                        vec![*guild]
                     } else {
-                        if let Some(guild) = guild {
-                            vec![*guild]
-                        } else {
-                            vec![]
-                        }
+                        storage.list_guilds().collect::<Vec<u64>>()
                     };
                     for guild in guilds {
                         println!("\nGuild: {}", guild);
@@ -297,6 +283,22 @@ pub fn execute(cli: &Cli) {
             rt.block_on(discord::delete_guild_slash_commands(*guild_id));
         }
 
+        Some(Commands::Check { guild_id, user_id }) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let controller: Controller<SledEncryptedStorage> = Controller::new();
+            let user_result = controller.storage.get_user(&user_id);
+            let gates = controller.storage.list_gates(&guild_id);
+            let wallet = match user_result {
+                Some(wallet) => wallet,
+                None => return error!("User not found"),
+            };
+            let roles = rt.block_on(controller::check_user(wallet, gates));
+            println!("Roles: {:?}", roles);
+        }
+
         None => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -305,15 +307,15 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     info!("Using unencrypted storage");
-                    rt.spawn(Controller::<SledUnencryptedStorage>::init())
+                    rt.spawn(Controller::<SledUnencryptedStorage>::spawn())
                 }
                 StorageType::InMemory => {
                     info!("Using in-memory storage");
-                    rt.spawn(Controller::<InMemoryStorage>::init())
+                    rt.spawn(Controller::<InMemoryStorage>::spawn())
                 }
                 StorageType::Encrypted => {
                     info!("Using encrypted storage");
-                    rt.spawn(Controller::<SledEncryptedStorage>::init())
+                    rt.spawn(Controller::<SledEncryptedStorage>::spawn())
                 }
             };
             rt.spawn(discord::start());

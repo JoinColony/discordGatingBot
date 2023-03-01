@@ -64,6 +64,8 @@ pub enum Commands {
     /// Interact with discord directly, e.g. register slash commands
     #[clap(subcommand)]
     Discord(DiscordCmd),
+    ///
+    Check { guild_id: u64, user_id: u64 },
 }
 
 /// Represents the config sub command, used to print the current config or get a template
@@ -203,9 +205,6 @@ pub enum GateCmd {
         /// End index of the listed entries
         #[clap(value_hint = ValueHint::Other, default_value = "100")]
         end: u64,
-        /// List gates in all guilds
-        #[clap(short, long, conflicts_with = "guild")]
-        all_guilds: bool,
     },
     /// Add a new gate
     Add {
@@ -346,3 +345,4 @@ impl std::str::FromStr for StorageType {
         }
     }
 }
+

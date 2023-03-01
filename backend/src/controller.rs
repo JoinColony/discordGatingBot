@@ -117,7 +117,7 @@ pub struct Gate {
 /// for communication with other parts of the application.
 #[derive(Debug)]
 pub struct Controller<S: Storage> {
-    storage: S,
+    pub storage: S,
     message_tx: mpsc::Sender<Message>,
     message_rx: mpsc::Receiver<Message>,
 }
@@ -135,7 +135,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
 
     /// Starts the controller and sets the global static channel for other
     /// parts of the application to communicate with it.
-    pub async fn init()
+    pub async fn spawn()
     where
         S: Storage + Send + 'static,
         <S as Storage>::GateIter: Send,
@@ -199,6 +199,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         response_tx,
                     } => {
                         debug!("Checking user {} in guild {}", user_id, guild_id);
+
                         let user_result = controller.storage.get_user(&user_id);
                         let gates = controller.storage.list_gates(&guild_id);
                         let wallet = match user_result {
@@ -219,33 +220,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
                             }
                         };
                         debug!("User {} has wallet {}", user_id, wallet);
-                        let wallet_iter = WalletIterator::new(wallet);
-                        let zipped_iter = wallet_iter.zip(gates);
-                        // TODO: make this concurrent
-                        let mut granted_roles: Vec<_> = stream::iter(zipped_iter)
-                            .filter_map(|(wallet_arc, gate)| async move {
-                                debug!("Checking gate {:?} with wallet {}", gate, *wallet_arc);
-                                if let Ok(reputation) =
-                                    check_reputation(&gate.colony, gate.domain, &wallet_arc).await
-                                {
-                                    debug!(
-                                        "Reputation in domain {} of colony {} is {}",
-                                        gate.domain, gate.colony, reputation
-                                    );
-                                    if reputation >= gate.reputation {
-                                        Some(gate.role_id)
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .await;
-                        debug!("Granted roles: {:?}", granted_roles);
-                        granted_roles.sort();
-                        granted_roles.dedup();
+                        let granted_roles = check_user(wallet, gates).await;
                         debug!("Granted roles deduped: {:?}", granted_roles);
                         if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
                             error!("Failed to send CheckResponse::Grant: {:?}", why);
@@ -318,6 +293,35 @@ impl<S: Storage + Send + 'static> Controller<S> {
     }
 }
 
+pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Vec<u64> {
+    let wallet_iter = WalletIterator::new(wallet);
+    let zipped_iter = wallet_iter.zip(gates);
+    // TODO: make this concurrent
+    let mut granted_roles: Vec<_> = stream::iter(zipped_iter)
+        .filter_map(|(wallet_arc, gate)| async move {
+            debug!("Checking gate {:?} with wallet {}", gate, *wallet_arc);
+            if let Ok(reputation) = check_reputation(&gate.colony, gate.domain, &wallet_arc).await {
+                debug!(
+                    "Reputation in domain {} of colony {} is {}",
+                    gate.domain, gate.colony, reputation
+                );
+                if reputation >= gate.reputation {
+                    Some(gate.role_id)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .await;
+    debug!("Granted roles: {:?}", granted_roles);
+    granted_roles.sort();
+    granted_roles.dedup();
+    granted_roles
+}
+
 struct WalletIterator {
     wallet: std::sync::Arc<String>,
 }
@@ -348,6 +352,13 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> Result<u32
     let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
     let zero_address = colony_rs::Address::zero();
     // TODO: Fetch both results in parallel
+    let base_reputation_fut = tokio::spawn(get_reputation_in_domain(&colony_addrss, &zero_address, domain));
+    let user_reputation_fut = tokio::spawn(get_reputation_in_domain(
+        &colony_addrss,
+        &wallet_address,
+        domain,
+    ));
+
     let base_reputation_str = if let Ok(reputation) =
         get_reputation_in_domain(&colony_addrss, &zero_address, domain).await
     {
@@ -473,7 +484,7 @@ mod tests {
     async fn setup() {
         let cfg = CliConfig::default();
         setup_config(&cfg).unwrap();
-        Controller::<storage::InMemoryStorage>::init().await;
+        Controller::<storage::InMemoryStorage>::spawn().await;
     }
 
     #[tokio::test]
