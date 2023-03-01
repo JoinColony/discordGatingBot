@@ -53,8 +53,19 @@ use {clap::CommandFactory, clap_complete::generate, std::io};
 /// configuration and then executes the command via the command module.
 #[instrument(level = "trace")]
 fn main() {
+    #[cfg(feature = "profiling")]
+    let guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(1000)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+        .unwrap();
     let cli = Cli::parse();
     config::setup_config(&cli.cfg).expect("Failed to setup config");
     logging::setup_logging();
     command::execute(&cli);
+    #[cfg(feature = "profiling")]
+    if let Ok(report) = guard.report().build() {
+        let file = std::fs::File::create("flamegraph.svg").unwrap();
+        report.flamegraph(file).unwrap();
+    };
 }

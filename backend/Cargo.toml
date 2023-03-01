@@ -9,11 +9,13 @@ authors =["Hans Mündelein <hans@muendelein.me>", "Christian Maniewski <code@chm
 categories = ["blockchain", "bot", "discord", "chat"]
 
 [features]
-default = []
+default = ["max_level_debug"]
+profiling = ["pprof"]
 completion = ["dep:clap_complete"]
-max_level_debug = ["tracing/release_max_level_debug"]
-max_level_info = ["tracing/release_max_level_info"]
-max_level_warn = ["tracing/release_max_level_warn"]
+max_level_trace = ["tracing/release_max_level_trace", "log/release_max_level_trace"]
+max_level_debug = ["tracing/release_max_level_debug", "log/release_max_level_debug"]
+max_level_info = ["tracing/release_max_level_info", "log/release_max_level_info"]
+max_level_warn = ["tracing/release_max_level_warn", "log/release_max_level_warn"]
 
 [dependencies]
 actix-web = { version = "4.3.0", features = ["rustls"] }
@@ -26,7 +28,9 @@ colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main
 confique = "0.2.2"
 futures = "0.3.26"
 hex = "0.4.3"
+log = { version = "0.4.17", optional = true }
 once_cell = "1.13.0"
+pprof = { version = "0.11.1", features = ["flamegraph"], optional = true }
 sailfish = "0.6.0"
 serde = { version = "1.0.142", features = ["derive"] }
 serde_derive = "1.0.142"
