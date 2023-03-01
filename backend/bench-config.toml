@@ -1,0 +1,4 @@
+verbosity = "Off"
+[storage]
+key = "f1b27c41b6d54696203fcfd4113d435d1dd2da06d203334becdf147d16c721fd"
+directory = "./bench_data"

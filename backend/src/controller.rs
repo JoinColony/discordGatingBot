@@ -349,32 +349,33 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> Result<u32
         wallet, colony, domain
     );
     let colony_addrss = colony_rs::Address::from_str(colony).unwrap();
+    let colony_addrss2 = colony_addrss.clone();
     let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
-    let zero_address = colony_rs::Address::zero();
-    // TODO: Fetch both results in parallel
-    let base_reputation_fut = tokio::spawn(get_reputation_in_domain(&colony_addrss, &zero_address, domain));
-    let user_reputation_fut = tokio::spawn(get_reputation_in_domain(
-        &colony_addrss,
-        &wallet_address,
-        domain,
-    ));
 
-    let base_reputation_str = if let Ok(reputation) =
+    let base_reputation_fut = tokio::spawn(async move {
+        let colony_addrss = colony_addrss2.clone();
+        let zero_address = colony_rs::Address::zero();
         get_reputation_in_domain(&colony_addrss, &zero_address, domain).await
-    {
-        reputation.reputation_amount
-    } else {
-        return Err("Failed to get base reputation".to_string());
-    };
+    });
+    let user_reputation_fut = tokio::spawn(async move {
+        get_reputation_in_domain(&colony_addrss, &wallet_address, domain).await
+    });
+
+    let (base_result, user_result) = tokio::join!(base_reputation_fut, user_reputation_fut);
+    let base_reputation_str =
+        if let Ok(reputation) = base_result.expect("Panicked in base reputation") {
+            reputation.reputation_amount
+        } else {
+            return Err("Failed to get base reputation".to_string());
+        };
 
     debug!("Base reputation: {}", base_reputation_str);
-    let user_reputation_str = if let Ok(reputation) =
-        get_reputation_in_domain(&colony_addrss, &wallet_address, domain).await
-    {
-        reputation.reputation_amount
-    } else {
-        "0".to_string()
-    };
+    let user_reputation_str =
+        if let Ok(reputation) = user_result.expect("Panicked in user reputation") {
+            reputation.reputation_amount
+        } else {
+            "0".to_string()
+        };
     // Since we have big ints for the reputation and a reputation threshold
     // in percent, we need to do some math to get the correct result
     // also the precision of the reputation threshold is variable

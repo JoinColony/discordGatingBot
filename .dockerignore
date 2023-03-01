@@ -1,4 +1,7 @@
 backend/target
 backend/man
 backend/completion
+backend/data
+backend/bench-data
+
 frontend/node_modules

@@ -12,4 +12,5 @@ completion
 
 # Data for running the bot
 data
+bench_data
 config.toml
