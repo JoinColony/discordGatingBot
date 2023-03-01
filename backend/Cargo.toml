@@ -9,13 +9,14 @@ authors =["Hans Mündelein <hans@muendelein.me>", "Christian Maniewski <code@chm
 categories = ["blockchain", "bot", "discord", "chat"]
 
 [features]
-default = ["max_level_debug"]
+default = ["max_level_info"]
 profiling = ["pprof"]
 completion = ["dep:clap_complete"]
 max_level_trace = ["tracing/release_max_level_trace", "log/release_max_level_trace"]
 max_level_debug = ["tracing/release_max_level_debug", "log/release_max_level_debug"]
 max_level_info = ["tracing/release_max_level_info", "log/release_max_level_info"]
 max_level_warn = ["tracing/release_max_level_warn", "log/release_max_level_warn"]
+max_level_error = ["tracing/release_max_level_error", "log/release_max_level_error"]
 
 [dependencies]
 actix-web = { version = "4.3.0", features = ["rustls"] }
