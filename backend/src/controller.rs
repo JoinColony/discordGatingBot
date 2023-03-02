@@ -11,16 +11,19 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use colony_rs::{get_reputation_in_domain, U512};
-use futures::{stream, StreamExt};
 use hex;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     hash::Hash,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinSet,
+};
 use tracing::{debug, error};
 use urlencoding;
 
@@ -294,51 +297,30 @@ impl<S: Storage + Send + 'static> Controller<S> {
 }
 
 pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Vec<u64> {
-    let wallet_iter = WalletIterator::new(wallet);
-    let zipped_iter = wallet_iter.zip(gates);
-    // TODO: make this concurrent
-    let mut granted_roles: Vec<_> = stream::iter(zipped_iter)
-        .filter_map(|(wallet_arc, gate)| async move {
-            debug!("Checking gate {:?} with wallet {}", gate, *wallet_arc);
-            if let Ok(reputation) = check_reputation(&gate.colony, gate.domain, &wallet_arc).await {
-                debug!(
-                    "Reputation in domain {} of colony {} is {}",
-                    gate.domain, gate.colony, reputation
-                );
+    let wallet_arc = Arc::new(wallet);
+    let mut set = JoinSet::new();
+    for gate in gates {
+        let wallet = wallet_arc.clone();
+        set.spawn(async move {
+            let reputation_res = check_reputation(&gate.colony, gate.domain, &wallet).await;
+            if let Ok(reputation) = reputation_res {
                 if reputation >= gate.reputation {
-                    Some(gate.role_id)
-                } else {
-                    None
+                    return Some(gate.role_id);
                 }
-            } else {
-                None
             }
-        })
-        .collect::<Vec<_>>()
-        .await;
+            None
+        });
+    }
+    let mut granted_roles = Vec::new();
+    while let Some(reputation_res) = set.join_next().await {
+        if let Ok(Some(role_id)) = reputation_res {
+            granted_roles.push(role_id);
+        }
+    }
     debug!("Granted roles: {:?}", granted_roles);
     granted_roles.sort();
     granted_roles.dedup();
     granted_roles
-}
-
-struct WalletIterator {
-    wallet: std::sync::Arc<String>,
-}
-impl WalletIterator {
-    fn new(wallet: String) -> Self {
-        WalletIterator {
-            wallet: std::sync::Arc::new(wallet),
-        }
-    }
-}
-impl Iterator for WalletIterator {
-    type Item = std::sync::Arc<String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let wallet = self.wallet.clone();
-        Some(wallet)
-    }
 }
 
 /// This is used to gather the fraction of total reputation a wallet has in
