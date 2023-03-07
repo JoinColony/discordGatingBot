@@ -22,14 +22,18 @@ max_level_error = ["tracing/release_max_level_error", "log/release_max_level_err
 actix-web = { version = "4.3.0", features = ["rustls"] }
 anyhow = "1.0.69"
 bincode = "1.3.3"
+cached = { version = "0.42.0", features = ["async_tokio_rt_multi_thread"] }
 chacha20poly1305 = "0.10.1"
 clap = { version = "3.2.15", features = ["cargo", "derive"] }
 clap_complete = { version = "3.2.3", optional = true }
-colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main" }
+# colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main" }
+colony-rs = { path = "../../colonyRS"}
 confique = "0.2.2"
 futures = "0.3.26"
+governor = "0.5.1"
 hex = "0.4.3"
 log = { version = "0.4.17", optional = true }
+nonzero_ext = "0.3.0"
 once_cell = "1.13.0"
 pprof = { version = "0.11.1", features = ["flamegraph"], optional = true }
 sailfish = "0.6.0"

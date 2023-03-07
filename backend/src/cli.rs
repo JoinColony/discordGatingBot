@@ -65,7 +65,14 @@ pub enum Commands {
     #[clap(subcommand)]
     Discord(DiscordCmd),
     ///
-    Check { guild_id: u64, user_id: u64 },
+    Check {
+        guild_id: u64,
+        user_id: u64,
+    },
+    Batch {
+        guild_id: u64,
+        user_ids: Vec<u64>,
+    },
 }
 
 /// Represents the config sub command, used to print the current config or get a template
@@ -345,4 +352,3 @@ impl std::str::FromStr for StorageType {
         }
     }
 }
-

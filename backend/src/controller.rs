@@ -1,20 +1,28 @@
-//! This is the main business logic of the application. It registers a global
+//! This is the main busines logic of the application. It registers a global
 //! static channel on which other parts of the application can communicate with
 //! the controller.
 //!
 
 use crate::{config::CONFIG, storage::Storage};
 use anyhow::{bail, Result};
+use cached::{proc_macro::cached, Cached, TimedCache};
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use colony_rs::{get_reputation_in_domain, U512};
+use colony_rs::{get_reputation_in_domain, H160, U512};
+use governor::{
+    clock::DefaultClock,
+    state::{direct::NotKeyed, InMemoryState},
+    Quota, RateLimiter,
+};
 use hex;
-use once_cell::sync::OnceCell;
+use nonzero_ext::*;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use std::{
     hash::Hash,
     str::FromStr,
@@ -24,11 +32,13 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinSet,
 };
-use tracing::{debug, error};
+use tracing::{debug, error, info, trace, warn};
 use urlencoding;
 
 /// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
+pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> =
+    Lazy::new(|| RateLimiter::direct(Quota::per_second(nonzero!(100u32))));
 /// A session encryption key which is used to encrypt the session used for
 /// user registration. It is generated once at startup and never changes as
 /// long as the application is running.
@@ -58,10 +68,15 @@ pub enum Message {
         role_id: u64,
     },
     Check {
+        guild_id: u64,
         user_id: u64,
         username: String,
-        guild_id: u64,
         response_tx: oneshot::Sender<CheckResponse>,
+    },
+    Batch {
+        guild_id: u64,
+        user_ids: Vec<u64>,
+        response_tx: mpsc::Sender<CheckResponse>,
     },
     Register {
         user_id: u64,
@@ -121,7 +136,7 @@ pub struct Gate {
 #[derive(Debug)]
 pub struct Controller<S: Storage> {
     pub storage: S,
-    message_tx: mpsc::Sender<Message>,
+    pub message_tx: mpsc::Sender<Message>,
     message_rx: mpsc::Receiver<Message>,
 }
 
@@ -136,9 +151,7 @@ impl<S: Storage + Send + 'static> Controller<S> {
         }
     }
 
-    /// Starts the controller and sets the global static channel for other
-    /// parts of the application to communicate with it.
-    pub async fn spawn()
+    pub async fn init()
     where
         S: Storage + Send + 'static,
         <S as Storage>::GateIter: Send,
@@ -147,10 +160,21 @@ impl<S: Storage + Send + 'static> Controller<S> {
         SESSION_KEY
             .set(key.to_vec())
             .expect("Failed to set session key");
-        let mut controller: Controller<S> = Controller::new();
+        let controller: Controller<S> = Controller::new();
         CONTROLLER_CHANNEL
             .set(controller.message_tx.clone())
             .expect("Failed to set controller channel");
+        controller.spawn().await;
+    }
+
+    /// Starts the controller and sets the global static channel for other
+    /// parts of the application to communicate with it.
+    pub async fn spawn(self)
+    where
+        S: Storage + Send + 'static,
+        <S as Storage>::GateIter: Send,
+    {
+        let mut controller = self;
         tokio::spawn(async move {
             while let Some(message) = controller.message_rx.recv().await {
                 debug!("Received message: {:?}", message);
@@ -229,6 +253,11 @@ impl<S: Storage + Send + 'static> Controller<S> {
                             error!("Failed to send CheckResponse::Grant: {:?}", why);
                         };
                     }
+                    Message::Batch {
+                        guild_id: _,
+                        user_ids: _,
+                        response_tx: _,
+                    } => todo!(),
                     Message::Register {
                         user_id,
                         wallet,
@@ -302,7 +331,7 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
     for gate in gates {
         let wallet = wallet_arc.clone();
         set.spawn(async move {
-            let reputation_res = check_reputation(&gate.colony, gate.domain, &wallet).await;
+            let reputation_res = check_reputation(&gate.colony, &wallet, gate.domain).await;
             if let Ok(reputation) = reputation_res {
                 if reputation >= gate.reputation {
                     return Some(gate.role_id);
@@ -320,44 +349,107 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
     debug!("Granted roles: {:?}", granted_roles);
     granted_roles.sort();
     granted_roles.dedup();
+    let guard = COLONY_CACHE.lock().await;
+    let hits = guard.cache_hits();
+    let misses = guard.cache_misses();
+    let size = guard.cache_size();
+    debug!(
+        "Colony reputation cache hits: {:?}, misses: {:?}, size: {}",
+        hits, misses, size
+    );
     granted_roles
+}
+
+#[cached(
+    name = "COLONY_CACHE",
+    type = "TimedCache<(H160,H160,u64), Result<String, String>>",
+    create = r##"{
+        TimedCache::with_lifespan_and_refresh(3600, true)
+        }
+    "##
+)]
+async fn get_reputation_in_domain_cached(
+    colony_address: &H160,
+    wallet_address: &H160,
+    domain: u64,
+) -> Result<String, String> {
+    match get_reputation_in_domain(colony_address, wallet_address, domain).await {
+        Ok(rep_no_proof) => Ok(rep_no_proof.reputation_amount),
+        Err(why) => Err(format!("{:?}", why)),
+    }
 }
 
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
-async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> Result<u32, String> {
+async fn check_reputation(colony: &str, wallet: &str, domain: u64) -> Result<u32, String> {
     debug!(
         "Checking reputation for wallet {} in colony {} domain {}",
         wallet, colony, domain
     );
-    let colony_addrss = colony_rs::Address::from_str(colony).unwrap();
-    let colony_addrss2 = colony_addrss.clone();
+    let mut interval = tokio::time::interval(Duration::from_millis(1));
+    let colony_address = colony_rs::Address::from_str(colony).unwrap();
     let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
+    loop {
+        interval.tick().await;
+        {
+            let mut guard = COLONY_CACHE.lock().await;
+            // we only check the user for a cache hit, this should imply a
+            // cache hit for the base reputation as well, edge cases should
+            // be irrelevant
+            if let Some(_result) = guard.cache_get(&(colony_address, wallet_address, domain)) {
+                debug!(
+                    "Cache hit for colony {} wallet {} domain {}, can return now",
+                    colony, wallet, domain
+                );
+                break;
+            }
+        }
+
+        match RATE_LIMITER.check_n(nonzero!(2u32)) {
+            Ok(_) => {
+                debug!(
+                    "Got pass from rate limiter for colony {} wallet {} domain {}, can return now",
+                    colony, wallet, domain
+                );
+                break;
+            }
+            Err(_) => trace!("Rate limit reached, waiting"),
+        }
+    }
 
     let base_reputation_fut = tokio::spawn(async move {
-        let colony_addrss = colony_addrss2.clone();
+        let colony_address = colony_address.clone();
         let zero_address = colony_rs::Address::zero();
-        get_reputation_in_domain(&colony_addrss, &zero_address, domain).await
+        get_reputation_in_domain_cached(&colony_address, &zero_address, domain).await
     });
     let user_reputation_fut = tokio::spawn(async move {
-        get_reputation_in_domain(&colony_addrss, &wallet_address, domain).await
+        get_reputation_in_domain_cached(&colony_address, &wallet_address, domain).await
     });
 
     let (base_result, user_result) = tokio::join!(base_reputation_fut, user_reputation_fut);
-    let base_reputation_str =
-        if let Ok(reputation) = base_result.expect("Panicked in base reputation") {
-            reputation.reputation_amount
-        } else {
+    let base_reputation_str = match base_result.expect("Panicked in base reputation") {
+        Ok(reputation) => reputation,
+        Err(why) => {
+            warn!("Failed to get base reputation: {:?}", why);
             return Err("Failed to get base reputation".to_string());
-        };
+        }
+    };
 
     debug!("Base reputation: {}", base_reputation_str);
-    let user_reputation_str =
-        if let Ok(reputation) = user_result.expect("Panicked in user reputation") {
-            reputation.reputation_amount
-        } else {
+    let user_reputation_str = match user_result.expect("Panicked in user reputation") {
+        Ok(reputation) => reputation,
+        Err(why) => {
+            info!("Failed to get user reputation: {:?}", why);
             "0".to_string()
-        };
+        }
+    };
+    Ok(calculate_reputation_percentage(
+        &base_reputation_str,
+        &user_reputation_str,
+    ))
+}
+
+fn calculate_reputation_percentage(base_reputation_str: &str, user_reputation_str: &str) -> u32 {
     // Since we have big ints for the reputation and a reputation threshold
     // in percent, we need to do some math to get the correct result
     // also the precision of the reputation threshold is variable
@@ -366,7 +458,7 @@ async fn check_reputation(colony: &str, domain: u64, wallet: &str) -> Result<u32
     let precision = CONFIG.wait().precision;
     let factor = U512::from(10).pow(U512::from(precision)) * U512::from(100);
     let reputation = user_reputation * factor / base_reputation;
-    Ok(reputation.as_u32())
+    reputation.as_u32()
 }
 
 /// This represents a session for a user that has not yet registered their
@@ -467,7 +559,7 @@ mod tests {
     async fn setup() {
         let cfg = CliConfig::default();
         setup_config(&cfg).unwrap();
-        Controller::<storage::InMemoryStorage>::spawn().await;
+        Controller::<storage::InMemoryStorage>::init().await;
     }
 
     #[tokio::test]

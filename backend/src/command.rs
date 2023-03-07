@@ -299,6 +299,9 @@ pub fn execute(cli: &Cli) {
             println!("Roles: {:?}", roles);
         }
 
+        Some(Commands::Batch { guild_id, user_ids }) => {
+            todo!()
+        }
         None => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -307,15 +310,15 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     info!("Using unencrypted storage");
-                    rt.spawn(Controller::<SledUnencryptedStorage>::spawn())
+                    rt.spawn(Controller::<SledUnencryptedStorage>::init())
                 }
                 StorageType::InMemory => {
                     info!("Using in-memory storage");
-                    rt.spawn(Controller::<InMemoryStorage>::spawn())
+                    rt.spawn(Controller::<InMemoryStorage>::init())
                 }
                 StorageType::Encrypted => {
                     info!("Using encrypted storage");
-                    rt.spawn(Controller::<SledEncryptedStorage>::spawn())
+                    rt.spawn(Controller::<SledEncryptedStorage>::init())
                 }
             };
             rt.spawn(discord::start());
