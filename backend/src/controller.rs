@@ -12,6 +12,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use colony_rs::{get_reputation_in_domain, H160, U512};
+use futures::FutureExt;
 use governor::{
     clock::DefaultClock,
     state::{direct::NotKeyed, InMemoryState},
@@ -24,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{
+    collections::HashSet,
     hash::Hash,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
@@ -53,6 +55,10 @@ pub enum Message {
         guild_id: u64,
         response: oneshot::Sender<Vec<Gate>>,
     },
+    Roles {
+        guild_id: u64,
+        response: oneshot::Sender<HashSet<u64>>,
+    },
     Delete {
         guild_id: u64,
         colony: String,
@@ -76,7 +82,7 @@ pub enum Message {
     Batch {
         guild_id: u64,
         user_ids: Vec<u64>,
-        response_tx: mpsc::Sender<CheckResponse>,
+        response_tx: mpsc::Sender<BatchResponse>,
     },
     Register {
         user_id: u64,
@@ -99,6 +105,12 @@ pub enum Message {
 pub enum CheckResponse {
     Grant(Vec<u64>),
     Register(String),
+}
+
+#[derive(Debug)]
+pub enum BatchResponse {
+    Grant { user_id: u64, roles: Vec<u64> },
+    Done,
 }
 
 /// The response to a register message, sent back via the oneshot channel in the
@@ -140,7 +152,7 @@ pub struct Controller<S: Storage> {
     message_rx: mpsc::Receiver<Message>,
 }
 
-impl<S: Storage + Send + 'static> Controller<S> {
+impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
     pub fn new() -> Self {
         let (message_tx, message_rx) = mpsc::channel(1024);
 
@@ -194,6 +206,11 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         };
                         debug!("Adding gate: {:?}", gate);
                         controller.storage.add_gate(&guild_id, gate);
+                    }
+                    Message::Roles { guild_id, response } => {
+                        let gates = controller.storage.list_gates(&guild_id);
+                        let roles = HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
+                        response.send(roles).unwrap();
                     }
                     Message::List { guild_id, response } => {
                         debug!("Received list request for guild {}", guild_id);
@@ -254,10 +271,54 @@ impl<S: Storage + Send + 'static> Controller<S> {
                         };
                     }
                     Message::Batch {
-                        guild_id: _,
-                        user_ids: _,
-                        response_tx: _,
-                    } => todo!(),
+                        guild_id,
+                        user_ids,
+                        response_tx,
+                    } => {
+                        debug!("Batch checking users {:?} in guild {}", user_ids, guild_id);
+                        let check_futures = user_ids
+                            .into_iter()
+                            .filter_map(|user_id| {
+                                let user_result = controller.storage.get_user(&user_id);
+                                match user_result {
+                                    Some(wallet) => Some((user_id, wallet)),
+                                    None => {
+                                        debug!("User {} not registered", user_id);
+                                        None
+                                    }
+                                }
+                            })
+                            .map(|(user_id, wallet)| {
+                                let gates = controller.storage.list_gates(&guild_id);
+                                check_user(wallet, gates)
+                                    .map(move |granted_roles| (user_id, granted_roles))
+                            });
+                        let mut set = JoinSet::new();
+                        for fut in check_futures {
+                            set.spawn(fut);
+                        }
+                        while let Some(result) = set.join_next().await {
+                            debug!("Batch checking {:?}", result);
+                            match result {
+                                Ok((user_id, roles)) => {
+                                    debug!("User {} granted roles {:?}", user_id, roles);
+                                    if let Err(why) = response_tx
+                                        .send(BatchResponse::Grant { user_id, roles })
+                                        .await
+                                    {
+                                        error!("Failed to send BatchResponse::Grant: {:?}", why);
+                                    };
+                                }
+                                Err(why) => {
+                                    error!("Failed to check user: {:?}", why);
+                                }
+                            }
+                        }
+                        debug!("Batch check complete, sending done");
+                        if let Err(why) = response_tx.send(BatchResponse::Done).await {
+                            error!("Failed to send BatchResponse::Done: {:?}", why);
+                        };
+                    }
                     Message::Register {
                         user_id,
                         wallet,
@@ -404,7 +465,8 @@ async fn check_reputation(colony: &str, wallet: &str, domain: u64) -> Result<u32
                 break;
             }
         }
-
+        // we need a double ticket here, because we need to check the base
+        // reputation and the user reputation separately
         match RATE_LIMITER.check_n(nonzero!(2u32)) {
             Ok(_) => {
                 debug!(

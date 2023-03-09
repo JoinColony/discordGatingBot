@@ -29,6 +29,11 @@ And the benchmark itself
 hyperfine --export-markdown=result.md --show-output -n HEAD \
 'target/release/discord-gating-bot --config-file ./bench-config.toml check 0 42'
 ```
+and for batch users 
+```bash
+hyperfine --export-markdown=result.md --show-output -n HEAD \
+'target/release/discord-gating-bot --config-file ./bench-config.toml batch 0 $(for i in {0..127}; do printf "$i "; done)'
+```
 
 And the flamegraph
 ```bash

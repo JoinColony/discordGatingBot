@@ -5,7 +5,7 @@
 use crate::cli::*;
 use crate::config;
 use crate::config::CONFIG;
-use crate::controller::{self, Controller, Gate};
+use crate::controller::{self, BatchResponse, Controller, Gate, Message};
 use crate::discord;
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
@@ -300,7 +300,39 @@ pub fn execute(cli: &Cli) {
         }
 
         Some(Commands::Batch { guild_id, user_ids }) => {
-            todo!()
+            let guild_id = *guild_id;
+            let user_ids = user_ids.clone();
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let controller: Controller<SledEncryptedStorage> = Controller::new();
+            let message_tx = controller.message_tx.clone();
+            rt.spawn(controller.spawn());
+            let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(100);
+            rt.spawn(async move {
+                message_tx
+                    .send(Message::Batch {
+                        guild_id,
+                        user_ids,
+                        response_tx,
+                    })
+                    .await
+                    .unwrap();
+            });
+            rt.block_on(async move {
+                while let Some(response) = response_rx.recv().await {
+                    match response {
+                        BatchResponse::Grant { user_id, roles } => {
+                            println!("User: {}, Roles: {:?}", user_id, roles);
+                        }
+                        BatchResponse::Done => {
+                            println!("Done");
+                            break;
+                        }
+                    }
+                }
+            });
         }
         None => {
             let rt = tokio::runtime::Builder::new_multi_thread()

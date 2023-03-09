@@ -2,7 +2,9 @@
 //!
 
 use crate::config::CONFIG;
-use crate::controller::{self, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL};
+use crate::controller::{
+    self, BatchResponse, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL,
+};
 use futures::{stream, StreamExt};
 use serenity::{
     async_trait,
@@ -25,14 +27,13 @@ use serenity::{
     prelude::*,
     utils::MessageBuilder,
 };
-use std::str::FromStr;
-use std::time::Duration;
+use std::{collections::HashMap, str::FromStr, time::Duration};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 pub async fn start() {
     let token = &CONFIG.wait().discord.token.clone();
-    let mut client = Client::builder(token, GatewayIntents::empty())
+    let mut client = Client::builder(token, GatewayIntents::GUILD_MEMBERS)
         .event_handler(Handler)
         .await
         .expect("Error creating client");
@@ -285,6 +286,7 @@ async fn gate_interaction_response(
     match option.name.as_str() {
         "add" => gate_add_interaction_response(&interaction, &ctx).await,
         "list" => list_gates_interaction_response(&interaction, &ctx).await,
+        "enforce" => enforce_gates_interaction_response(&interaction, &ctx).await,
         _ => unknown_interaction_response(&interaction, &ctx).await,
     }
 }
@@ -299,28 +301,6 @@ async fn get_interaction_response(
         "in" => get_in_interaction_response(&interaction, &ctx).await,
         "out" => get_out_interaction_response(&interaction, &ctx).await,
         _ => unknown_interaction_response(&interaction, &ctx).await,
-    }
-}
-
-async fn is_below_bot_in_hierarchy(
-    position: u64,
-    ctx: &Context,
-    guild_id: u64,
-    bot_user_id: u64,
-) -> bool {
-    let bot_member = ctx.http.get_member(guild_id, bot_user_id).await.unwrap();
-    let bot_roles = bot_member.roles;
-    let guild_roles = ctx.http.get_guild_roles(guild_id).await.unwrap();
-    if let Some(max) = guild_roles
-        .iter()
-        .filter(|r| bot_roles.iter().any(|&br| br == r.id))
-        .map(|r| r.position)
-        .max()
-    {
-        position < max as u64
-    } else {
-        error!("No bot roles found");
-        false
     }
 }
 
@@ -470,6 +450,147 @@ async fn list_gates_interaction_response(
         })
         .await;
     Ok(())
+}
+
+async fn enforce_gates_interaction_response(
+    command: &ApplicationCommandInteraction,
+    ctx: &Context,
+) -> Result<(), SerenityError> {
+    debug!("Received enforce gates interaction");
+    let guild_id = command.guild_id.unwrap();
+    let (role_tx, role_rx) = tokio::sync::oneshot::channel();
+    let message = controller::Message::Roles {
+        guild_id: guild_id.into(),
+        response: role_tx,
+    };
+    if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
+        error!("Error sending message to controller: {:?}", err);
+    }
+    let managed_roles = role_rx.await.unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+    let members = ctx
+        .http
+        .get_guild_members(guild_id.into(), None, None)
+        .await?;
+    let user_ids = members
+        .iter()
+        .map(|m| m.user.id.as_u64().clone())
+        .collect::<Vec<_>>();
+    let member_map = members
+        .into_iter()
+        .map(|m| {
+            (
+                m.user.id.as_u64().clone(),
+                m.roles
+                    .iter()
+                    .filter_map(|&r| {
+                        let id = u64::from(r);
+                        if managed_roles.contains(&id) {
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let message = controller::Message::Batch {
+        guild_id: guild_id.into(),
+        user_ids,
+        response_tx: tx,
+    };
+    eprintln!("{:#?}", member_map);
+    if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
+        error!("Error sending message to controller: {:?}", err);
+    }
+    let mut message = MessageBuilder::new();
+    message.push("Enforcing gates for all server members and the following roles");
+    for role in managed_roles.iter() {
+        message.role(*role);
+    }
+    respond(ctx, command, message, true).await?;
+    while let Some(response) = rx.recv().await {
+        match response {
+            BatchResponse::Grant { user_id, roles } => {
+                let gained_roles = roles
+                    .iter()
+                    .filter(|&r| !member_map[&user_id].contains(r))
+                    .collect::<Vec<_>>();
+                let lost_roles = member_map[&user_id]
+                    .iter()
+                    .filter(|&r| !roles.contains(r))
+                    .collect::<Vec<_>>();
+                let mut message = MessageBuilder::new();
+                if gained_roles.is_empty() && lost_roles.is_empty() {
+                    continue;
+                }
+                let mut failed_grants = Vec::new();
+                let mut failed_losses = Vec::new();
+
+                for role in gained_roles.clone() {
+                    if let Err(why) = ctx
+                        .http
+                        .add_member_role(guild_id.into(), user_id.into(), *role, None)
+                        .await
+                    {
+                        info!("Error granting role: {:?}", why);
+                        failed_grants.push(role);
+                    }
+                }
+                for role in lost_roles.clone() {
+                    if let Err(why) = ctx
+                        .http
+                        .remove_member_role(guild_id.into(), user_id.into(), *role, None)
+                        .await
+                    {
+                        info!("Error removing role: {:?}", why);
+                        failed_losses.push(role);
+                    }
+                }
+                message.user(user_id);
+                message.push_line(" there was a role update for you!");
+
+                message.push_line(
+                    "You can always use the `/get in` command to \
+                                  check if new roles are available to you.",
+                );
+                message.push_line("");
+                if !gained_roles.is_empty() {
+                    message.push("You have been granted the following roles: ");
+                    for role in gained_roles {
+                        message.role(*role);
+                    }
+                    message.push_line("");
+                }
+                if !lost_roles.is_empty() {
+                    message.push("You lost the following roles: ");
+                    for role in lost_roles {
+                        message.role(*role);
+                    }
+                }
+                if !failed_grants.is_empty() {
+                    message.push_line("");
+                    message.push("there were problems however granting you the roles: ");
+                    for role in failed_grants {
+                        message.role(*role);
+                    }
+                }
+                if !failed_losses.is_empty() {
+                    message.push_line("");
+                    message
+                        .push("luckily for you, I couldn't remove the following roles from you: ");
+                    for role in failed_losses {
+                        message.role(*role);
+                    }
+                }
+                message.build();
+                follow_up(&ctx, command, message, false).await?;
+            }
+            BatchResponse::Done => break,
+        }
+    }
+    follow_up(&ctx, command, "Finished enforcement of gates", true).await
 }
 
 async fn get_in_interaction_response(
@@ -701,6 +822,12 @@ fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateAppli
                 .description("Lists gates that are currently active for this server.")
                 .kind(CommandOptionType::SubCommand)
         })
+        .create_option(|option| {
+            option
+                .name("enforce")
+                .description("Enforce the managed gates on all members of the server")
+                .kind(CommandOptionType::SubCommand)
+        })
         .default_member_permissions(Permissions::MANAGE_GUILD)
 }
 
@@ -814,6 +941,28 @@ async fn follow_up(
         .create_followup_message(&ctx.http, |m| m.content(message).ephemeral(ephemeral))
         .await
         .map(|_| ())
+}
+
+async fn is_below_bot_in_hierarchy(
+    position: u64,
+    ctx: &Context,
+    guild_id: u64,
+    bot_user_id: u64,
+) -> bool {
+    let bot_member = ctx.http.get_member(guild_id, bot_user_id).await.unwrap();
+    let bot_roles = bot_member.roles;
+    let guild_roles = ctx.http.get_guild_roles(guild_id).await.unwrap();
+    if let Some(max) = guild_roles
+        .iter()
+        .filter(|r| bot_roles.iter().any(|&br| br == r.id))
+        .map(|r| r.position)
+        .max()
+    {
+        position < max as u64
+    } else {
+        error!("No bot roles found");
+        false
+    }
 }
 
 fn extract_options(
