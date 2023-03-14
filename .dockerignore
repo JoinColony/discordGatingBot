@@ -5,3 +5,4 @@ backend/data
 backend/bench-data
 
 frontend/node_modules
+frontend/dist

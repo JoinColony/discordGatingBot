@@ -1,7 +1,10 @@
 FROM docker.io/rust as builder
+RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+RUN apt-get update && apt-get install -y nodejs
 
 WORKDIR /usr/src/discord-gating-bot
 COPY . .
+
 
 WORKDIR /usr/src/discord-gating-bot/backend
 RUN cargo install --path .
@@ -21,6 +24,7 @@ RUN echo "source /usr/local/share/bash-completion/completions/discord-gating-bot
     mandb
 
 CMD ["discord-gating-bot"]
+
 
 
 
