@@ -27,8 +27,8 @@ cached = { version = "0.42.0", features = ["async_tokio_rt_multi_thread"] }
 chacha20poly1305 = "0.10.1"
 clap = { version = "3.2.15", features = ["cargo", "derive"] }
 clap_complete = { version = "3.2.3", optional = true }
-# colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main" }
-colony-rs = { path = "../../colonyRS"}
+colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main" }
+# colony-rs = { path = "../../colonyRS"}
 confique = "0.2.2"
 dyn-clone = "1.0.11"
 enum-iterator = "1.4.0"
