@@ -5,6 +5,9 @@ use crate::config::CONFIG;
 use crate::controller::{
     self, BatchResponse, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL,
 };
+use crate::gate::{Gate, GateOptionType, GateOptionValue, GateOptionValueType};
+use crate::gates;
+use anyhow::{anyhow, Result};
 use futures::{stream, StreamExt};
 use serenity::{
     async_trait,
@@ -15,19 +18,19 @@ use serenity::{
             command::Command,
             interaction::{
                 application_command::{ApplicationCommandInteraction, CommandDataOptionValue},
-                autocomplete::AutocompleteInteraction,
                 Interaction, InteractionResponseType,
             },
         },
         gateway::{GatewayIntents, Ready},
         id::GuildId,
         permissions::Permissions,
-        prelude::{command::CommandOptionType, RoleId},
+        prelude::command::CommandOptionType,
     },
     prelude::*,
     utils::MessageBuilder,
 };
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::fmt::Display;
+use std::{collections::HashMap, time::Duration};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
@@ -57,9 +60,6 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
         commands
             .create_application_command(make_gate_command)
             .create_application_command(make_get_command)
-            .create_application_command(make_list_gates_command)
-            .create_application_command(make_check_command)
-            .create_application_command(make_checkout_command)
     })
     .await;
     if let Err(why) = command_result {
@@ -110,13 +110,6 @@ pub async fn register_global_slash_commands() {
     {
         error!("Error creating global slash command list gates: {:?}", why);
     }
-    if let Err(why) = Command::create_global_application_command(&http, make_check_command).await {
-        error!("Error creating global slash command check: {:?}", why);
-    }
-    if let Err(why) = Command::create_global_application_command(&http, make_checkout_command).await
-    {
-        error!("Error creating global slash command checkout: {:?}", why);
-    }
 }
 
 pub async fn delete_global_slash_commands() {
@@ -156,178 +149,63 @@ impl EventHandler for Handler {
             let interaction_response = match command.data.name.as_str() {
                 "gate" => gate_interaction_response(&command, &ctx).await,
                 "get" => get_interaction_response(&command, &ctx).await,
-                "list_gates" => list_gates_interaction_response(&command, &ctx).await,
-                "check" => get_in_interaction_response(&command, &ctx).await,
-                "checkout" => get_out_interaction_response(&command, &ctx).await,
-                _ => unknown_interaction_response(&command, &ctx).await,
+                _ => {
+                    error!("Unknown command: {}", command.data.name);
+                    return;
+                }
             };
             if let Err(why) = interaction_response {
-                warn!("Error responding to interaction: {:?}", why);
-            }
-        }
-        if let Interaction::Autocomplete(interaction) = interaction {
-            if interaction.data.options.len() != 1 {
-                warn!("Autocomplete interaction with more than one option");
-                return;
-            }
-            let interaction_response = match (
-                interaction.data.name.as_str(),
-                interaction.data.options[0].name.as_str(),
-            ) {
-                ("gate", "add") => gate_add_autocomplete_interaction(&interaction, &ctx).await,
-                _ => return,
-            };
-            if let Err(why) = interaction_response {
-                warn!("Error responding to interaction: {:?}", why);
-            }
-        };
-    }
-}
-
-async fn gate_add_autocomplete_interaction(
-    interaction: &AutocompleteInteraction,
-    ctx: &Context,
-) -> Result<(), SerenityError> {
-    debug!(
-        "Received gate add autocomplete interaction: {:?}",
-        interaction
-    );
-    if interaction.data.options[0].options.len() == 0 {
-        warn!("Autocomplete interaction without suboptions");
-        return Err(SerenityError::Other("Invalid interaction"));
-    }
-    let focused = if let Some(focused) = &interaction.data.options[0]
-        .options
-        .iter()
-        .find(|o| o.focused)
-    {
-        *focused
-    } else {
-        warn!("Autocomplete interaction without focused option");
-        return Err(SerenityError::Other("Invalid interaction"));
-    };
-    match focused.name.as_str() {
-        "colony" => colony_autocomplete_response(&interaction, &ctx).await,
-        "domain" => domain_autocomplete_response(&interaction, &ctx).await,
-        _ => {
-            warn!(
-                "No autocompletion {:?}",
-                interaction.data.options[0].options[0]
-            );
-            Ok(())
-        }
-    }
-}
-
-async fn colony_autocomplete_response(
-    interaction: &AutocompleteInteraction,
-    ctx: &Context,
-) -> Result<(), SerenityError> {
-    let option = interaction.data.options[0].options[0].clone();
-    let typed = option.value.as_ref().unwrap().as_str().unwrap();
-    interaction
-        .create_autocomplete_response(ctx, |response| {
-            if !typed.is_empty() {
-                response.add_string_choice(&typed, &typed);
-            }
-            response
-                .add_string_choice(
-                    "MetaColonyAddress(0xcfd3aa1ebc6119d80ed47955a87a9d9c281a97b3)",
-                    "0xcfd3aa1ebc6119d80ed47955a87a9d9c281a97b3",
-                )
-                .add_string_choice(
-                    "DevColonyAddress(0x364b3153a24bb9eca28b8c7aceb15e3942eb4fc5)",
-                    "0x364b3153a24bb9eca28b8c7aceb15e3942eb4fc5",
-                )
-        })
-        .await
-}
-
-async fn domain_autocomplete_response(
-    interaction: &AutocompleteInteraction,
-    ctx: &Context,
-) -> Result<(), SerenityError> {
-    eprintln!("Domain autocomplete response for {:#?}", interaction);
-    let option = interaction.data.options[0].options[1].clone();
-    eprintln!("Option: {:#?}", option);
-    interaction
-        .create_autocomplete_response(ctx, |response| {
-            if let Some(typed_raw) = option.value.as_ref() {
-                eprintln!("Typed: {:#?}", typed_raw);
-                if let Some(typed_str) = typed_raw.as_str() {
-                    eprintln!("Typed: {:#?}", typed_str);
-                    if let Ok(typed) = typed_str.parse::<i64>() {
-                        eprintln!("Typed: {}", typed);
-                        response.add_int_choice(typed.to_string(), typed);
-                    }
+                info!("Error responding to interaction: {:?}", why);
+                let message = MessageBuilder::new()
+                    .push("⚠️⚠️⚠️  An error happened while processing your command: ")
+                    .push_mono(why.to_string())
+                    .build();
+                if let Err(why) = respond(&ctx, &command, message, true).await {
+                    error!("Could not respond to discord {:?}", why);
                 }
             }
-            response
-                .add_int_choice("1", 1)
-                .add_int_choice("2", 2)
-                .add_int_choice("3", 3)
-                .add_int_choice("4", 4)
-                .add_int_choice("5", 5)
-                .add_int_choice("6", 6)
-                .add_int_choice("7", 7)
-                .add_int_choice("8", 8)
-                .add_int_choice("9", 9)
-                .add_int_choice("10", 10)
-        })
-        .await
+        }
+    }
 }
 
 async fn gate_interaction_response(
     interaction: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received gate interaction: {:?}", interaction);
     let option = &interaction.data.options[0];
     match option.name.as_str() {
-        "add" => gate_add_interaction_response(&interaction, &ctx).await,
-        "list" => list_gates_interaction_response(&interaction, &ctx).await,
-        "enforce" => enforce_gates_interaction_response(&interaction, &ctx).await,
-        _ => unknown_interaction_response(&interaction, &ctx).await,
+        "add" => Ok(gate_add_interaction_response(&interaction, &ctx).await?),
+        "list" => Ok(list_gates_interaction_response(&interaction, &ctx).await?),
+        "enforce" => Ok(enforce_gates_interaction_response(&interaction, &ctx).await?),
+        _ => Err(anyhow!("Unknown gate subcommand")),
     }
 }
 
 async fn get_interaction_response(
     interaction: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received get interaction: {:?}", interaction);
     let option = &interaction.data.options[0];
     match option.name.as_str() {
-        "in" => get_in_interaction_response(&interaction, &ctx).await,
-        "out" => get_out_interaction_response(&interaction, &ctx).await,
-        _ => unknown_interaction_response(&interaction, &ctx).await,
+        "in" => Ok(get_in_interaction_response(&interaction, &ctx).await?),
+        "out" => Ok(get_out_interaction_response(&interaction, &ctx).await?),
+        _ => Err(anyhow!("Unknown get subcommand")),
     }
 }
 
 async fn gate_add_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
-    debug!("Received gate add interaction");
-    let (colony, reputation, role_id, role_position, guild_id, domain) = extract_options(command)?;
-    debug!(
-        "Colony: {}, Reputation: {}, Role ID: {}, Guild ID: {}, Domain: {}",
-        colony, reputation, role_id, guild_id, domain
-    );
-    if let Err(why) = validate_gate_input(ctx, command, &colony, domain, role_id, reputation).await
-    {
-        respond(ctx, command, &why, true).await?;
-        info!("Invalid gate command: {}", why);
-        return Err(SerenityError::Other("Failed to validate gate input"));
+) -> Result<()> {
+    debug!("Received get interaction: {:?}", command);
+    let (name, role_id, role_position, guild_id, options) = extract_gate_add_options(command)?;
+    if role_id == guild_id {
+        return Err(anyhow!("Role cannot be @everyone"));
     }
-
-    let message = controller::Message::Gate {
-        colony,
-        domain: domain as u64,
-        reputation: reputation as u32,
-        role_id,
-        guild_id,
-    };
+    let gate = Gate::new(role_id, &name, &options)?;
+    let message = controller::Message::Gate { guild_id, gate };
     CONTROLLER_CHANNEL.wait().send(message).await.unwrap();
     let mut content = MessageBuilder::new();
     content.push("Your role: ");
@@ -343,7 +221,7 @@ async fn gate_add_interaction_response(
         );
     }
     content.build();
-    respond(ctx, command, content, true).await
+    Ok(respond(ctx, command, content, true).await?)
 }
 
 async fn list_gates_interaction_response(
@@ -368,8 +246,6 @@ async fn list_gates_interaction_response(
     } else {
         respond(ctx, command, "Here are the gates on the server", true).await?;
     }
-    let precision = CONFIG.wait().precision;
-    let factor = 10.0f64.powi(-(precision as i32));
 
     stream::iter(gates)
         .for_each_concurrent(None, |gate| async move {
@@ -377,17 +253,16 @@ async fn list_gates_interaction_response(
             content.push("The role: ");
             content.role(gate.role_id);
             content.push_line(" is gated by the following criteria");
-            let reputation = gate.reputation as f64 * factor;
-
             let follow_up = command
                 .create_followup_message(ctx, |message| {
                     message
                         .ephemeral(true)
                         .content(&content)
                         .embed(|e| {
-                            e.field("Colony Address", gate.colony.clone(), true)
-                                .field("Domain", gate.domain, true)
-                                .field("Reputation", format!("{}%", reputation), true)
+                            for field in gate.condition.fields() {
+                                e.field(field.name, field.value, true);
+                            }
+                            e
                         })
                         .components(|c| {
                             c.create_action_row(|row| {
@@ -416,10 +291,7 @@ async fn list_gates_interaction_response(
                 }
                 let message = controller::Message::Delete {
                     guild_id,
-                    colony: gate.colony.clone(),
-                    domain: gate.domain,
-                    reputation: gate.reputation,
-                    role_id: gate.role_id,
+                    gate: gate.clone(),
                 };
                 if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
                     error!("Error sending message to controller: {:?}", err);
@@ -435,9 +307,10 @@ async fn list_gates_interaction_response(
                     .create_interaction_response(&ctx.http, |response| {
                         response.interaction_response_data(|message| {
                             message.content(content).ephemeral(true).embed(|e| {
-                                e.field("Colony Address", gate.colony.clone(), true)
-                                    .field("Domain", gate.domain, true)
-                                    .field("Reputation", format!("{}%", reputation), true)
+                                for field in gate.condition.fields() {
+                                    e.field(field.name, field.value, true);
+                                }
+                                e
                             })
                         });
                         response.kind(InteractionResponseType::ChannelMessageWithSource)
@@ -618,7 +491,7 @@ async fn get_in_interaction_response(
         &ctx,
         command,
         "Checking your reputation in the colonies,\
-              this might take a while",
+              this might take a while...",
         true,
     )
     .await?;
@@ -770,51 +643,76 @@ fn make_list_gates_command(
 
 fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
     debug!("Creating gate slash command");
+    let options = gates!(options);
+    let descriptions = gates!(descriptions);
     command
         .name("gate")
-        .description("Make a role gated by the reputation in a colony")
+        .description("Create a new gate for a role on this server")
         .create_option(|option| {
+            for (gate_name, gate_option) in options.into_iter() {
+                option.create_sub_option(|sub_option| {
+                    sub_option
+                        .name(gate_name)
+                        .kind(CommandOptionType::SubCommand)
+                        .description(descriptions.get(gate_name).expect(
+                            "Did not find description, in the gates! \
+                                    macro generated map. This should not happen",
+                        ));
+                    for o in gate_option.into_iter() {
+                        sub_option.create_sub_option(|sub_sub_option| {
+                            sub_sub_option
+                                .name(o.name)
+                                .description(o.description)
+                                .required(o.required);
+                            match o.option_type {
+                                GateOptionType::String {
+                                    min_length,
+                                    max_length,
+                                } => {
+                                    sub_sub_option.kind(CommandOptionType::String);
+                                    if let Some(min_length) = min_length {
+                                        sub_sub_option.min_length(min_length);
+                                    }
+                                    if let Some(max_length) = max_length {
+                                        sub_sub_option.max_length(max_length);
+                                    }
+                                }
+                                GateOptionType::I64 { min, max } => {
+                                    sub_sub_option.kind(CommandOptionType::Integer);
+                                    if let Some(min) = min {
+                                        sub_sub_option.min_int_value(min);
+                                    }
+                                    if let Some(max) = max {
+                                        sub_sub_option.max_int_value(max);
+                                    }
+                                }
+                                GateOptionType::F64 { min, max } => {
+                                    sub_sub_option.kind(CommandOptionType::Number);
+                                    if let Some(min) = min {
+                                        sub_sub_option.min_number_value(min);
+                                    }
+                                    if let Some(max) = max {
+                                        sub_sub_option.max_number_value(max);
+                                    }
+                                }
+                            };
+                            sub_sub_option
+                        });
+                    }
+                    sub_option.create_sub_option(|sub_option| {
+                        sub_option
+                            .name("role")
+                            .description("The role to be gated")
+                            .kind(CommandOptionType::Role)
+                            .required(true)
+                    });
+                    sub_option
+                });
+            }
             option
                 .name("add")
                 .description("Add a new gate to protect a role on the server")
-                .kind(CommandOptionType::SubCommand)
-                .create_sub_option(|sub_option| {
-                    sub_option
-                        .name("colony")
-                        .description("The colony in which the reputation guards the role")
-                        .kind(CommandOptionType::String)
-                        .required(true)
-                        .set_autocomplete(true)
-                })
-                .create_sub_option(|sub_option| {
-                    sub_option
-                        .name("domain")
-                        .description(
-                            "The domain of the colony in which the reputation guards the role",
-                        )
-                        .kind(CommandOptionType::Integer)
-                        .required(true)
-                        .min_int_value(1)
-                        .set_autocomplete(true)
-                })
-                .create_sub_option(|sub_option| {
-                    sub_option
-                        .name("reputation")
-                        .description(
-                            "The percentage of reputation in the domain, required to get the role",
-                        )
-                        .kind(CommandOptionType::Number)
-                        .min_number_value(0.0)
-                        .max_number_value(100.0)
-                        .required(true)
-                })
-                .create_sub_option(|sub_option| {
-                    sub_option
-                        .name("role")
-                        .description("The role to be gated by reputation")
-                        .kind(CommandOptionType::Role)
-                        .required(true)
-                })
+                .kind(CommandOptionType::SubCommandGroup)
         })
         .create_option(|option| {
             option
@@ -825,7 +723,7 @@ fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateAppli
         .create_option(|option| {
             option
                 .name("enforce")
-                .description("Enforce the managed gates on all members of the server")
+                .description("Enforce the active gates on all members of the server")
                 .kind(CommandOptionType::SubCommand)
         })
         .default_member_permissions(Permissions::MANAGE_GUILD)
@@ -848,72 +746,6 @@ fn make_get_command(command: &mut CreateApplicationCommand) -> &mut CreateApplic
                 .description("Deregister your discord user and wallet address from the gating bot")
                 .kind(CommandOptionType::SubCommand)
         })
-}
-
-fn make_checkout_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    debug!("Creating check slash command");
-    command
-        .name("checkout")
-        .description("Deregister your wallet address from your discord user")
-}
-
-fn make_check_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-    debug!("Creating check slash command");
-    command
-        .name("check")
-        .description("Check the reputation of a colony and get the gated roles")
-}
-
-async fn validate_gate_input(
-    ctx: &Context,
-    command: &ApplicationCommandInteraction,
-    colony: &str,
-    domain: i64,
-    role_id: u64,
-    reputation: i64,
-) -> Result<(), String> {
-    if colony.is_empty() {
-        return Err("Colony address cannot be empty".to_string());
-    }
-    if let Err(err) = colony_rs::Address::from_str(colony) {
-        return Err(format!("Invalid colony address: {}", err));
-    }
-    if domain < 1 {
-        return Err("Domain must be greater than 0".to_string());
-    }
-    let guild_id = match command.guild_id {
-        Some(guild_id) => guild_id,
-        None => {
-            error!("No guild ID found for interaction");
-            return Err("Guild ID not found".to_string());
-        }
-    };
-    if guild_id.0 == role_id {
-        return Err("⚠️  Role cannot be @everyone  ⚠️".to_string());
-    }
-    let roles = match ctx.http.get_guild_roles(guild_id.into()).await {
-        Ok(roles) => roles,
-        Err(why) => {
-            error!("Error getting guild roles: {:?}", why);
-            return Err(format!("Error getting guild roles: {:?}", why));
-        }
-    };
-    if !roles
-        .iter()
-        .any(|r| r.id == <u64 as Into<RoleId>>::into(role_id))
-    {
-        return Err("Role not found".to_string());
-    }
-    if reputation < 0 {
-        return Err("Reputation must be 0 or greater".to_string());
-    }
-    let precision = CONFIG.wait().precision;
-    let factor = 10u64.pow(precision as u32);
-    if reputation > 100 * factor as i64 {
-        return Err("Reputation must be 100 or less".to_string());
-    }
-
-    Ok(())
 }
 
 async fn respond(
@@ -965,100 +797,60 @@ async fn is_below_bot_in_hierarchy(
     }
 }
 
-fn extract_options(
+fn extract_gate_add_options(
     command: &ApplicationCommandInteraction,
-) -> Result<(String, i64, u64, u64, u64, i64), SerenityError> {
-    let mut colony: String = String::new();
-    let mut reputation: i64 = 0;
-    let mut role_id: u64 = 0;
+) -> Result<(String, u64, u64, u64, Vec<GateOptionValue>)> {
+    let mut role_id: Option<u64> = None;
     let mut role_position: u64 = 0;
     let mut guild_id: u64 = 0;
-    let mut domain: i64 = 0;
-    for option in command.data.options.iter() {
-        match option.name.as_str() {
-            "add" => {
-                for sub_option in option.options.iter() {
-                    match sub_option.name.as_str() {
-                        "colony" => {
-                            debug!("colony suboption {:?}", sub_option);
-                            if let Some(CommandDataOptionValue::String(colony_value)) =
-                                sub_option.resolved.as_ref()
-                            {
-                                colony = colony_value.to_lowercase();
-                            }
-                        }
-                        "domain" => {
-                            debug!("domain suboption {:?}", sub_option);
-                            if let Some(CommandDataOptionValue::Integer(domain_value)) =
-                                sub_option.resolved.as_ref()
-                            {
-                                domain = *domain_value as i64;
-                            }
-                        }
-                        "reputation" => {
-                            debug!("reputation suboption {:?}", sub_option);
-                            if let Some(CommandDataOptionValue::Number(reputation_value)) =
-                                sub_option.resolved.as_ref()
-                            {
-                                let precision = CONFIG.wait().precision;
-                                reputation =
-                                    (*reputation_value * 10.0_f64.powi(precision as i32)) as i64;
-                            }
-                        }
-                        "role" => {
-                            debug!("role suboption {:?}", sub_option);
-                            if let Some(CommandDataOptionValue::Role(role)) =
-                                sub_option.resolved.as_ref()
-                            {
-                                role_id = role.id.into();
-                                role_position = role.position as u64;
-                                guild_id = role.guild_id.into();
-                            }
-                        }
-                        _ => {
-                            error!("Unknown suboption {}", sub_option.name);
-                            return Err(SerenityError::Other("Unknown option"));
-                        }
-                    }
-                }
-            }
-            "colony" => {
-                debug!("colony option {:?}", option);
-                if let CommandDataOptionValue::String(colony_value) =
-                    option.resolved.as_ref().unwrap()
-                {
-                    colony = colony_value.to_lowercase();
-                }
-            }
-            "domain" => {
-                debug!("domain option {:?}", option);
-                if let CommandDataOptionValue::Integer(domain_value) =
-                    option.resolved.as_ref().unwrap()
-                {
-                    domain = *domain_value as i64;
-                }
-            }
-            "reputation" => {
-                debug!("reputation option {:?}", option);
-                if let CommandDataOptionValue::Number(reputation_value) =
-                    option.resolved.as_ref().unwrap()
-                {
-                    let precision = CONFIG.wait().precision;
-                    reputation = (*reputation_value * 10.0_f64.powi(precision as i32)) as i64;
-                }
-            }
+    let add_option = command
+        .data
+        .options
+        .iter()
+        .find(|o| o.name.as_str() == "add")
+        .ok_or(anyhow!("No add option found"))?;
+    if add_option.options.is_empty() {
+        return Err(anyhow!("No options found on add found"));
+    }
+    let sub_option = &add_option.options[0];
+    let name = sub_option.name.clone();
+    let options = sub_option
+        .options
+        .iter()
+        .filter_map(|sub_sub_option| match sub_sub_option.name.as_str() {
             "role" => {
-                debug!("role option {:?}", option);
-                if let CommandDataOptionValue::Role(role) = option.resolved.as_ref().unwrap() {
-                    role_id = role.id.into();
+                if let Some(CommandDataOptionValue::Role(role)) = sub_sub_option.resolved.as_ref() {
+                    role_id = Some(role.id.into());
+                    role_position = role.position as u64;
                     guild_id = role.guild_id.into();
+                } else {
+                    error!("Role field did not hold a role type");
                 }
+                None
             }
             _ => {
-                error!("Unknown option {}", option.name);
-                return Err(SerenityError::Other("Unknown option"));
+                let value = match sub_sub_option.resolved.as_ref() {
+                    Some(CommandDataOptionValue::String(s)) => {
+                        GateOptionValueType::String(s.clone())
+                    }
+                    Some(CommandDataOptionValue::Integer(i)) => GateOptionValueType::I64(*i),
+                    Some(CommandDataOptionValue::Number(n)) => GateOptionValueType::F64(*n),
+                    _ => {
+                        error!("Unknown option type");
+                        return None;
+                    }
+                };
+
+                Some(GateOptionValue {
+                    name: sub_sub_option.name.clone(),
+                    value,
+                })
             }
-        }
+        })
+        .collect();
+    if let Some(role_id) = role_id {
+        Ok((name, role_id, role_position, guild_id, options))
+    } else {
+        Err(anyhow!("Role id missing"))
     }
-    Ok((colony, reputation, role_id, role_position, guild_id, domain))
 }

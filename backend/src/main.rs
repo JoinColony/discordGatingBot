@@ -38,6 +38,7 @@ mod command;
 mod config;
 mod controller;
 mod discord;
+mod gate;
 mod logging;
 mod server;
 mod storage;

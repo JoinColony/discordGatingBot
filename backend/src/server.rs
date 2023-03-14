@@ -16,7 +16,9 @@ use urlencoding;
 static SIGN_SCRIPT: &'static str = include_str!("../../frontend/dist/index.js");
 static FAVICON: &'static [u8] = include_bytes!("../static/favicon.ico");
 
-const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your Discord username {username} with your wallet address. Session ID: {session}";
+const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your \
+                                    Discord username {username} with your wallet \
+                                    address. Session ID: {session}";
 
 pub async fn start() -> std::io::Result<()> {
     let host = CONFIG.wait().server.host.clone();

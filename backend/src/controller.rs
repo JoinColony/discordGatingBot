@@ -3,30 +3,22 @@
 //! the controller.
 //!
 
+use crate::gate::Gate;
 use crate::{config::CONFIG, storage::Storage};
 use anyhow::{bail, Result};
-use cached::{proc_macro::cached, Cached, TimedCache};
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use colony_rs::{get_reputation_in_domain, H160, U512};
+use colony_rs::H160;
 use futures::FutureExt;
-use governor::{
-    clock::DefaultClock,
-    state::{direct::NotKeyed, InMemoryState},
-    Quota, RateLimiter,
-};
 use hex;
-use nonzero_ext::*;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
 use std::{
     collections::HashSet,
-    hash::Hash,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -39,8 +31,6 @@ use urlencoding;
 
 /// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
-pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> =
-    Lazy::new(|| RateLimiter::direct(Quota::per_second(nonzero!(100u32))));
 /// A session encryption key which is used to encrypt the session used for
 /// user registration. It is generated once at startup and never changes as
 /// long as the application is running.
@@ -61,17 +51,11 @@ pub enum Message {
     },
     Delete {
         guild_id: u64,
-        colony: String,
-        domain: u64,
-        reputation: u32,
-        role_id: u64,
+        gate: Gate,
     },
     Gate {
         guild_id: u64,
-        colony: String,
-        domain: u64,
-        reputation: u32,
-        role_id: u64,
+        gate: Gate,
     },
     Check {
         guild_id: u64,
@@ -129,20 +113,6 @@ pub enum UnRegisterResponse {
     Unregister(String),
 }
 
-/// Represents a gate for a discord role issues by the /gate slash command.
-/// This is stored in the database for each discord server.
-#[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
-pub struct Gate {
-    /// The colony address in which the reputation should be looked up
-    pub colony: String,
-    /// The domain in which the reputation should be looked up  
-    pub domain: u64,
-    /// The reputation amount required to be granted the role
-    pub reputation: u32,
-    /// The role to be granted
-    pub role_id: u64,
-}
-
 /// The main business logic instance. It holds a storage instance and a channel
 /// for communication with other parts of the application.
 #[derive(Debug)]
@@ -191,19 +161,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
             while let Some(message) = controller.message_rx.recv().await {
                 debug!("Received message: {:?}", message);
                 match message {
-                    Message::Gate {
-                        colony,
-                        domain,
-                        reputation,
-                        role_id,
-                        guild_id,
-                    } => {
-                        let gate = Gate {
-                            colony,
-                            domain,
-                            reputation,
-                            role_id,
-                        };
+                    Message::Gate { guild_id, gate } => {
                         debug!("Adding gate: {:?}", gate);
                         controller.storage.add_gate(&guild_id, gate);
                     }
@@ -220,19 +178,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                             error!("Failed to send list response: {:?}", why);
                         }
                     }
-                    Message::Delete {
-                        guild_id,
-                        colony,
-                        domain,
-                        reputation,
-                        role_id,
-                    } => {
-                        let gate = Gate {
-                            colony,
-                            domain,
-                            reputation,
-                            role_id,
-                        };
+                    Message::Delete { guild_id, gate } => {
                         debug!("Deleting gate: {:?}", gate);
                         controller.storage.remove_gate(&guild_id, gate);
                     }
@@ -391,15 +337,8 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
     let mut set = JoinSet::new();
     for gate in gates {
         let wallet = wallet_arc.clone();
-        set.spawn(async move {
-            let reputation_res = check_reputation(&gate.colony, &wallet, gate.domain).await;
-            if let Ok(reputation) = reputation_res {
-                if reputation >= gate.reputation {
-                    return Some(gate.role_id);
-                }
-            }
-            None
-        });
+        let wallet = H160::from_str(&wallet).unwrap();
+        set.spawn(gate.check(wallet));
     }
     let mut granted_roles = Vec::new();
     while let Some(reputation_res) = set.join_next().await {
@@ -410,117 +349,7 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
     debug!("Granted roles: {:?}", granted_roles);
     granted_roles.sort();
     granted_roles.dedup();
-    let guard = COLONY_CACHE.lock().await;
-    let hits = guard.cache_hits();
-    let misses = guard.cache_misses();
-    let size = guard.cache_size();
-    debug!(
-        "Colony reputation cache hits: {:?}, misses: {:?}, size: {}",
-        hits, misses, size
-    );
     granted_roles
-}
-
-#[cached(
-    name = "COLONY_CACHE",
-    type = "TimedCache<(H160,H160,u64), Result<String, String>>",
-    create = r##"{
-        TimedCache::with_lifespan_and_refresh(3600, true)
-        }
-    "##
-)]
-async fn get_reputation_in_domain_cached(
-    colony_address: &H160,
-    wallet_address: &H160,
-    domain: u64,
-) -> Result<String, String> {
-    match get_reputation_in_domain(colony_address, wallet_address, domain).await {
-        Ok(rep_no_proof) => Ok(rep_no_proof.reputation_amount),
-        Err(why) => Err(format!("{:?}", why)),
-    }
-}
-
-/// This is used to gather the fraction of total reputation a wallet has in
-/// a domain in a colony
-async fn check_reputation(colony: &str, wallet: &str, domain: u64) -> Result<u32, String> {
-    debug!(
-        "Checking reputation for wallet {} in colony {} domain {}",
-        wallet, colony, domain
-    );
-    let mut interval = tokio::time::interval(Duration::from_millis(1));
-    let colony_address = colony_rs::Address::from_str(colony).unwrap();
-    let wallet_address = colony_rs::Address::from_str(wallet).unwrap();
-    loop {
-        interval.tick().await;
-        {
-            let mut guard = COLONY_CACHE.lock().await;
-            // we only check the user for a cache hit, this should imply a
-            // cache hit for the base reputation as well, edge cases should
-            // be irrelevant
-            if let Some(_result) = guard.cache_get(&(colony_address, wallet_address, domain)) {
-                debug!(
-                    "Cache hit for colony {} wallet {} domain {}, can return now",
-                    colony, wallet, domain
-                );
-                break;
-            }
-        }
-        // we need a double ticket here, because we need to check the base
-        // reputation and the user reputation separately
-        match RATE_LIMITER.check_n(nonzero!(2u32)) {
-            Ok(_) => {
-                debug!(
-                    "Got pass from rate limiter for colony {} wallet {} domain {}, can return now",
-                    colony, wallet, domain
-                );
-                break;
-            }
-            Err(_) => trace!("Rate limit reached, waiting"),
-        }
-    }
-
-    let base_reputation_fut = tokio::spawn(async move {
-        let colony_address = colony_address.clone();
-        let zero_address = colony_rs::Address::zero();
-        get_reputation_in_domain_cached(&colony_address, &zero_address, domain).await
-    });
-    let user_reputation_fut = tokio::spawn(async move {
-        get_reputation_in_domain_cached(&colony_address, &wallet_address, domain).await
-    });
-
-    let (base_result, user_result) = tokio::join!(base_reputation_fut, user_reputation_fut);
-    let base_reputation_str = match base_result.expect("Panicked in base reputation") {
-        Ok(reputation) => reputation,
-        Err(why) => {
-            warn!("Failed to get base reputation: {:?}", why);
-            return Err("Failed to get base reputation".to_string());
-        }
-    };
-
-    debug!("Base reputation: {}", base_reputation_str);
-    let user_reputation_str = match user_result.expect("Panicked in user reputation") {
-        Ok(reputation) => reputation,
-        Err(why) => {
-            info!("Failed to get user reputation: {:?}", why);
-            "0".to_string()
-        }
-    };
-    Ok(calculate_reputation_percentage(
-        &base_reputation_str,
-        &user_reputation_str,
-    ))
-}
-
-fn calculate_reputation_percentage(base_reputation_str: &str, user_reputation_str: &str) -> u32 {
-    // Since we have big ints for the reputation and a reputation threshold
-    // in percent, we need to do some math to get the correct result
-    // also the precision of the reputation threshold is variable
-    let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
-    let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
-    let precision = CONFIG.wait().precision;
-    let factor = U512::from(10).pow(U512::from(precision)) * U512::from(100);
-    let reputation = user_reputation * factor / base_reputation;
-    reputation.as_u32()
 }
 
 /// This represents a session for a user that has not yet registered their

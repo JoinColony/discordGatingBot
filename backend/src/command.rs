@@ -5,14 +5,17 @@
 use crate::cli::*;
 use crate::config;
 use crate::config::CONFIG;
-use crate::controller::{self, BatchResponse, Controller, Gate, Message};
+use crate::controller::{self, BatchResponse, Controller, Message};
 use crate::discord;
+use crate::gate::{Gate, ReputationGate};
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
 use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
 };
+use colony_rs::H160;
+use std::str::FromStr;
 use tokio;
 use tracing::{error, info};
 #[cfg(feature = "completion")]
@@ -199,21 +202,27 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
+                    let colony = H160::from_str(colony_address).unwrap();
                     let gate = Gate {
-                        colony: colony_address.to_string(),
-                        domain: *domain_id,
-                        reputation: *reputation,
                         role_id: *role_id,
+                        condition: Box::new(ReputationGate {
+                            colony,
+                            domain: *domain_id,
+                            reputation: *reputation,
+                        }),
                     };
                     storage.add_gate(guild_id, gate);
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
+                    let colony = H160::from_str(colony_address).unwrap();
                     let gate = Gate {
-                        colony: colony_address.to_string(),
-                        domain: *domain_id,
-                        reputation: *reputation,
                         role_id: *role_id,
+                        condition: Box::new(ReputationGate {
+                            colony,
+                            domain: *domain_id,
+                            reputation: *reputation,
+                        }),
                     };
                     storage.add_gate(guild_id, gate);
                 }
@@ -230,11 +239,14 @@ pub fn execute(cli: &Cli) {
             reputation,
             role_id,
         }))) => {
+            let colony = H160::from_str(colony_address).unwrap();
             let gate = Gate {
-                colony: colony_address.to_string(),
-                domain: *domain_id,
-                reputation: *reputation,
                 role_id: *role_id,
+                condition: Box::new(ReputationGate {
+                    colony,
+                    domain: *domain_id,
+                    reputation: *reputation,
+                }),
             };
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {

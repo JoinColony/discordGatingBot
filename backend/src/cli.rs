@@ -1,3 +1,4 @@
+// use crate::gates;
 /// The cli module defines all subcommands and sets up the cli parser
 ///
 /// Additional commands can be added via the `Commands` enum

@@ -3,7 +3,7 @@
 //!
 
 use crate::config::CONFIG;
-use crate::controller::Gate;
+use crate::gate::Gate;
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
     aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -12,10 +12,7 @@ use chacha20poly1305::{
 use hex;
 use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-};
+use std::collections::HashMap;
 use tracing::debug;
 
 /// The storage trait that defines the methods that need to be implemented
@@ -136,20 +133,16 @@ impl Storage for SledUnencryptedStorage {
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
         let gate_bytes = bincode::serialize(&gate).unwrap();
-        let mut h = DefaultHasher::new();
-        gate.hash(&mut h);
-        let hash = h.finish();
-        debug!("Adding gate {:?} with hash {}", gate, hash);
-        tree.insert(h.finish().to_be_bytes(), gate_bytes).unwrap();
+        let key = gate.identifier();
+        debug!("Adding gate {:?} with key {}", gate, key);
+        tree.insert(key.to_be_bytes(), gate_bytes).unwrap();
     }
 
     fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        let mut h = DefaultHasher::new();
-        gate.hash(&mut h);
-        let hash = h.finish().to_be_bytes();
-        debug!("Removing gate {:?} with hash {}", gate, hex::encode(hash));
-        tree.remove(hash).unwrap();
+        let key = gate.identifier();
+        debug!("Removing gate {:?} with key {}", gate, key);
+        tree.remove(key.to_be_bytes()).unwrap();
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
@@ -229,16 +222,14 @@ impl Storage for SledEncryptedStorage {
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
         let gate_bytes = bincode::serialize(&gate).unwrap();
-        let mut h = DefaultHasher::new();
-        gate.hash(&mut h);
-        tree.insert(h.finish().to_be_bytes(), gate_bytes).unwrap();
+        let key = gate.identifier();
+        tree.insert(key.to_be_bytes(), gate_bytes).unwrap();
     }
 
     fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
         let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        let mut h = DefaultHasher::new();
-        gate.hash(&mut h);
-        tree.remove(h.finish().to_be_bytes()).unwrap();
+        let key = gate.identifier();
+        tree.remove(key.to_be_bytes()).unwrap();
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
@@ -250,7 +241,7 @@ impl Storage for SledEncryptedStorage {
     fn get_user(&self, user_id: &u64) -> Option<String> {
         let wallet = self.db.get(user_id.to_be_bytes()).unwrap();
         if let Some(wallet) = wallet {
-            let encrypted: EncytpionWrapper = bincode::deserialize(&wallet).unwrap();
+            let encrypted: EncryptionWrapper = bincode::deserialize(&wallet).unwrap();
             Some(encrypted.decrypt())
         } else {
             None
@@ -262,14 +253,14 @@ impl Storage for SledEncryptedStorage {
             let (key, value) = x.unwrap();
             debug!("key: {:?}, value: {:?}", key, value);
             let key: u64 = u64::from_be_bytes(key.to_vec().try_into().unwrap());
-            let encrypted: EncytpionWrapper = bincode::deserialize(&value).unwrap();
+            let encrypted: EncryptionWrapper = bincode::deserialize(&value).unwrap();
             let decrypted = encrypted.decrypt();
             (key, decrypted)
         })
     }
 
     fn add_user(&mut self, user_id: u64, wallet: String) {
-        let encrypted = EncytpionWrapper::new(wallet);
+        let encrypted = EncryptionWrapper::new(wallet);
         self.db
             .insert(
                 user_id.to_be_bytes(),
@@ -290,12 +281,12 @@ impl Storage for SledEncryptedStorage {
 /// A convinience wrapper around the stored user wallet addresses, that
 /// also holds the nonce used for encryption
 #[derive(Debug, Serialize, Deserialize)]
-struct EncytpionWrapper {
+struct EncryptionWrapper {
     nonce: Vec<u8>,
     ciphertext: Vec<u8>,
 }
 
-impl EncytpionWrapper {
+impl EncryptionWrapper {
     fn new(plaintext: String) -> Self {
         let key_hex = &CONFIG.wait().storage.key;
         let key_bytes = hex::decode(key_hex).unwrap();
