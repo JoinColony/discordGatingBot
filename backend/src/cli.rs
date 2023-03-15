@@ -1,8 +1,7 @@
-// use crate::gates;
-/// The cli module defines all subcommands and sets up the cli parser
-///
-/// Additional commands can be added via the `Commands` enum
-///
+//! The cli module defines all subcommands and sets up the cli parser
+//!
+//! Additional commands can be added via the `Commands` enum
+//!
 use clap::Args;
 use clap::{
     crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand, ValueHint,

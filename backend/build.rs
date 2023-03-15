@@ -3,13 +3,16 @@ use clap_complete::{generate_to, shells};
 use clap_mangen::Man;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 // the cli source file is included for generation purposes
-include!("src/cli.rs");
+#[path = "src/cli.rs"]
+mod cli;
+use cli::*;
 
-#[cfg(not(feature = "build_info"))]
 fn main() {
+    // we only want to do the heavy lifting on release builds
     if Ok("release".to_owned()) == env::var("PROFILE") {
         // tagging the git repo with the version from cargo if the tag doesn't
         // already exist
@@ -29,7 +32,7 @@ fn main() {
         install_frontend_deps();
         panic!("Just checking if the if works");
     }
-    // build frontend code
+    // we always want to build the frontend code, to not miss frontend updates
     build_frontend();
 }
 
@@ -122,20 +125,20 @@ fn create_shell_completions(mut cli: clap::Command) {
     let mut completion_dir_path = PathBuf::new();
     completion_dir_path.push(env!("CARGO_MANIFEST_DIR"));
     completion_dir_path.push("completion");
-    fs::create_dir_all(&completion_dir_path).expect("Failed to create directory");
+    fs::create_dir_all(&completion_dir_path).expect("Failed to create completion directory");
     generate_to(shells::Bash, &mut cli, &cli_name, &completion_dir_path)
-        .expect("Failed to generate completion");
+        .expect("Failed to generate bash completion");
     generate_to(shells::Elvish, &mut cli, &cli_name, &completion_dir_path)
-        .expect("Failed to generate completion");
+        .expect("Failed to generate elvish completion");
     generate_to(shells::Fish, &mut cli, &cli_name, &completion_dir_path)
-        .expect("Failed to generate completion");
+        .expect("Failed to generate fish completion");
     generate_to(
         shells::PowerShell,
         &mut cli,
         &cli_name,
         &completion_dir_path,
     )
-    .expect("Failed to generate completion");
+    .expect("Failed to generate powershell completion");
     generate_to(shells::Zsh, &mut cli, &cli_name, &completion_dir_path)
-        .expect("Failed to generate completion");
+        .expect("Failed to generate zsh completion");
 }
