@@ -1,6 +1,5 @@
 //! Handles the communication with the Discord API.
 //!
-
 use crate::config::CONFIG;
 use crate::controller::{
     self, BatchResponse, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL,
@@ -9,6 +8,7 @@ use crate::gate::{Gate, GateOptionType, GateOptionValue, GateOptionValueType};
 use crate::gates;
 use anyhow::{anyhow, Result};
 use futures::{stream, StreamExt};
+use secrecy::ExposeSecret;
 use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
@@ -29,13 +29,12 @@ use serenity::{
     prelude::*,
     utils::MessageBuilder,
 };
-use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 pub async fn start() {
-    let token = &CONFIG.wait().discord.token.clone();
+    let token = &CONFIG.wait().discord.token.expose_secret();
     let mut client = Client::builder(token, GatewayIntents::GUILD_MEMBERS)
         .event_handler(Handler)
         .await
@@ -46,7 +45,7 @@ pub async fn start() {
 }
 
 pub async fn register_guild_slash_commands(guild_id: u64) {
-    let token = &CONFIG.wait().discord.token.clone();
+    let token = &CONFIG.wait().discord.token.expose_secret();
     debug!("Registering slash commands for guild {}", guild_id);
     let guild_id = GuildId(guild_id);
     let http = Http::new(&token);
@@ -68,7 +67,7 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
 }
 
 pub async fn delete_guild_slash_commands(guild_id: u64) {
-    let token = &CONFIG.wait().discord.token.clone();
+    let token = &CONFIG.wait().discord.token.expose_secret();
     debug!("Deleting slash commands for guild {}", guild_id);
     let guild_id = GuildId(guild_id);
     let http = Http::new(&token);
@@ -90,7 +89,7 @@ pub async fn delete_guild_slash_commands(guild_id: u64) {
 }
 
 pub async fn register_global_slash_commands() {
-    let token = &CONFIG.wait().discord.token.clone();
+    let token = &CONFIG.wait().discord.token.expose_secret();
     debug!("Registering slash commands globally");
     let http = Http::new(&token);
     let resp = http
@@ -113,7 +112,7 @@ pub async fn register_global_slash_commands() {
 }
 
 pub async fn delete_global_slash_commands() {
-    let token = &CONFIG.wait().discord.token.clone();
+    let token = &CONFIG.wait().discord.token.expose_secret();
     debug!("Deleting slash commands globally");
     let http = Http::new(&token);
     let resp = http

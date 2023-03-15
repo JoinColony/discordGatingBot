@@ -9,7 +9,8 @@ use clap::{
 #[cfg(feature = "completion")]
 use clap_complete::Shell;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use secrecy::SecretString;
+use serde::Deserialize;
 use std::path::PathBuf;
 
 /// The long description used for the help subcommand and man page.
@@ -255,7 +256,7 @@ pub enum GateCmd {
 /// line flags that take precedence over the config files and environment
 /// variables. Most of the fields are optional and will be merged with other
 /// sources values in the config module
-#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Args, Clone, Debug, Default, Deserialize)]
 #[clap()]
 pub struct CliConfig {
     /// Sets a custom config file
@@ -280,12 +281,12 @@ pub struct CliConfig {
 
 /// This structs contains the sub configuration for the discord client options.
 /// Just for structuring the cli flags
-#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Args, Clone, Debug, Default, Deserialize)]
 #[clap()]
 pub struct CliDiscordConfig {
     /// The discord bot token
     #[clap(short, long)]
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
     /// The discor bot invitation url
     #[clap(short, long)]
     pub invite_url: Option<String>,
@@ -293,7 +294,7 @@ pub struct CliDiscordConfig {
 
 /// This structs contains the sub configuration for the http server options.
 /// Just for structuring the cli flags
-#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Args, Clone, Debug, Default, Deserialize)]
 #[clap()]
 pub struct CliServerConfig {
     /// The address to listen on
@@ -309,7 +310,7 @@ pub struct CliServerConfig {
 
 /// This structs contains the sub configuration for the storage options.
 /// Just for structuring the cli flags
-#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Args, Clone, Debug, Default, Deserialize)]
 #[clap()]
 pub struct CliStorageConfig {
     /// The path where the persistent data is stored
@@ -320,11 +321,11 @@ pub struct CliStorageConfig {
     pub storage_type: Option<StorageType>,
     /// The encryption_key used to encrypt the stored data
     #[clap(short, long)]
-    pub key: Option<String>,
+    pub key: Option<SecretString>,
 }
 
 /// The storage type enum, used to select the storage type
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub enum StorageType {
     /// Store data peristent and encrypted on disk, this is the default
     Encrypted,

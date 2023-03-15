@@ -6,7 +6,9 @@ use crate::cli::{CliConfig, StorageType};
 use crate::logging::LogLevel;
 use confique::{toml, toml::FormatOptions, Config, File, FileFormat, Partial};
 use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
+use regex::Regex;
+use secrecy::SecretString;
+use serde::Deserialize;
 use std::{fs, path::PathBuf};
 
 /// The global configuration is loaded into a global static OnceCell
@@ -53,15 +55,31 @@ pub fn print_config(raw_cli_cfg: &CliConfig) {
     if !env.is_empty() {
         println!("\n\nEnvironment variables: ");
         std::env::vars()
-            .filter(|(k, _)| k.starts_with("CLNY_"))
+            .filter_map(|(k, v)| {
+                if k.starts_with("CLNY_") {
+                    if k == "CLNY_ENCRYPTION_KEY" {
+                        return Some((k, "<redacted>".to_string()));
+                    }
+                    if k == "CLNY_DISCORD_TOKEN" {
+                        return Some((k, "<redacted>".to_string()));
+                    }
+                    Some((k, v))
+                } else {
+                    None
+                }
+            })
             .for_each(|(k, v)| println!("{}={}", k, v));
     }
 
     if let Ok(file_content) = fs::read_to_string(&config_file) {
+        let token_re = Regex::new(r"(?m)^\s*token\s*=.*").unwrap();
+        let key_re = Regex::new(r"(?m)^\s*key\s*=.*").unwrap();
+        let without_token = token_re.replace_all(&file_content, "token = \"<redacted>\"");
+        let without_key = key_re.replace_all(&without_token, "key = \"<redacted>\"");
         println!(
             "\n\nUsed config file: {}: \n{}",
             config_file.display(),
-            file_content
+            without_key
         );
     }
 
@@ -137,7 +155,7 @@ pub fn print_template() {
 
 /// The main configuration struct used by the entire application
 /// it is constructed from the partial configurations from different sources
-#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Config, Debug, Deserialize)]
 pub struct GlobalConfig {
     /// The path to the configuration file
     #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
@@ -160,7 +178,7 @@ pub struct GlobalConfig {
 }
 
 /// The sub configuration for the http server
-#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Config, Debug, Deserialize)]
 pub struct ServerConfig {
     /// The base url under which the server is reachable
     #[config(env = "CLNY_URL", default = "http://localhost")]
@@ -174,7 +192,7 @@ pub struct ServerConfig {
 }
 
 /// The sub configuration for storage and encryption
-#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Config, Debug, Deserialize)]
 pub struct StorageConfig {
     /// The path where the persistent data is stored
     #[config(env = "CLNY_STORAGE_DIRECTORY", default = "./data")]
@@ -184,15 +202,15 @@ pub struct StorageConfig {
     pub storage_type: StorageType,
     /// The encryption_key used to encrypt the stored data
     #[config(env = "CLNY_ENCRYPTION_KEY", default = "")]
-    pub key: String,
+    pub key: SecretString,
 }
 
 /// The sub configuration for discord interaction
-#[derive(Clone, Config, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Config, Debug, Deserialize)]
 pub struct DiscordConfig {
     /// The discord bot token
     #[config(env = "CLNY_DISCORD_TOKEN", default = "")]
-    pub token: String,
+    pub token: SecretString,
     /// The discor bot invitation url
     #[config(env = "CLNY_DISCORD_INVITATION_URL", default = "")]
     pub invite_url: String,

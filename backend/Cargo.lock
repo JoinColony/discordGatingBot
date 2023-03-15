@@ -1182,7 +1182,9 @@ dependencies = [
  "nonzero_ext",
  "once_cell",
  "pprof",
+ "regex",
  "sailfish",
+ "secrecy",
  "serde",
  "serde_derive",
  "serenity",
@@ -3463,6 +3465,16 @@ dependencies = [
  "generic-array 0.14.6",
  "pkcs8",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bd1c54ea06cfd2f6b63219704de0b9b4f72dcc2b8fdef820be6cd799780e91e"
+dependencies = [
+ "serde",
  "zeroize",
 ]
 

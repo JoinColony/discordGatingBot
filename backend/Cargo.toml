@@ -39,7 +39,9 @@ log = { version = "0.4.17", optional = true }
 nonzero_ext = "0.3.0"
 once_cell = "1.13.0"
 pprof = { version = "0.11.1", features = ["flamegraph"], optional = true }
+regex = "1.7.1"
 sailfish = "0.6.0"
+secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.142", features = ["derive"] }
 serde_derive = "1.0.142"
 serenity = { version = "0.11.5", default-features = false, features = ["client", "collector", "model",  "gateway", "rustls_backend" ] }
@@ -58,6 +60,7 @@ clap_complete = "3.2.3"
 clap_mangen = "0.1.10"
 confique = "0.2.2"
 once_cell = "1.13.0"
+secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.142", features = ["derive"] }
 serde_derive = "1.0.142"
 tracing-log = "0.1.3"

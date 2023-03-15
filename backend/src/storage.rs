@@ -10,6 +10,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use hex;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
 use std::collections::HashMap;
@@ -288,7 +289,7 @@ struct EncryptionWrapper {
 
 impl EncryptionWrapper {
     fn new(plaintext: String) -> Self {
-        let key_hex = &CONFIG.wait().storage.key;
+        let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex).unwrap();
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
@@ -303,7 +304,7 @@ impl EncryptionWrapper {
     }
 
     fn decrypt(&self) -> String {
-        let key_hex = &CONFIG.wait().storage.key;
+        let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex).unwrap();
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
