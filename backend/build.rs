@@ -1,8 +1,8 @@
 use clap::CommandFactory;
 use clap_complete::{generate_to, shells};
 use clap_mangen::Man;
+use std::env;
 use std::fs;
-
 use std::process;
 
 // the cli source file is included for generation purposes
@@ -10,22 +10,35 @@ include!("src/cli.rs");
 
 #[cfg(not(feature = "build_info"))]
 fn main() {
-    // tagging the git repo with the version from cargo if the tag doesn't
-    // already exist
-    if !get_git_tags().contains(&env!("CARGO_PKG_VERSION").to_string()) {
-        tag_git_repo();
-    }
+    if Ok("release".to_owned()) == env::var("PROFILE") {
+        // tagging the git repo with the version from cargo if the tag doesn't
+        // already exist
+        if !get_git_tags().contains(&env!("CARGO_PKG_VERSION").to_string()) {
+            tag_git_repo();
+        }
 
-    //parsing the cli for generation tasks
-    let cli = Cli::command();
-    // generating the man pages in a folder in the manifest directory
-    create_man_pages(cli.clone());
-    // generating the completion functions in a folder in the manifest directory
-    create_shell_completions(cli);
-    // rendering readme
-    render_readme();
+        //parsing the cli for generation tasks
+        let cli = Cli::command();
+        // generating the man pages in a folder in the manifest directory
+        create_man_pages(cli.clone());
+        // generating the completion functions in a folder in the manifest directory
+        create_shell_completions(cli);
+        // rendering readme
+        render_readme();
+        // install npm dependencies for the frontend
+        install_frontend_deps();
+        panic!("Just checking if the if works");
+    }
     // build frontend code
     build_frontend();
+}
+
+fn install_frontend_deps() {
+    process::Command::new("npm")
+        .current_dir("../frontend")
+        .arg("install")
+        .output()
+        .expect("failed to execute process");
 }
 
 fn build_frontend() {
