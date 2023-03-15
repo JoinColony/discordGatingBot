@@ -30,7 +30,6 @@ fn main() {
         render_readme();
         // install npm dependencies for the frontend
         install_frontend_deps();
-        panic!("Just checking if the if works");
     }
     // we always want to build the frontend code, to not miss frontend updates
     build_frontend();
