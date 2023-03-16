@@ -3,18 +3,19 @@
 //!
 
 use crate::cli::*;
+
 use crate::config;
 use crate::config::CONFIG;
 use crate::controller::{self, BatchResponse, Controller, Message};
 use crate::discord;
-use crate::gate::{Gate, ReputationGate};
+use crate::gate::{Gate, ReputationGate, PRECISION_FACTOR};
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
 use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use colony_rs::H160;
+use colony_rs::{u256_from_f64_saturating, H160};
 use std::str::FromStr;
 use tokio;
 use tracing::{error, info};
@@ -202,26 +203,30 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
-                    let colony = H160::from_str(colony_address).unwrap();
+                    let colony = H160::from_str(colony_address).expect("Invalid colony address");
                     let gate = Gate {
                         role_id: *role_id,
                         condition: Box::new(ReputationGate {
-                            colony,
-                            domain: *domain_id,
-                            reputation: *reputation,
+                            colony_address: colony,
+                            colony_domain: *domain_id,
+                            reputation_threshold_scaled: u256_from_f64_saturating(
+                                *reputation * PRECISION_FACTOR,
+                            ),
                         }),
                     };
                     storage.add_gate(guild_id, gate);
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
-                    let colony = H160::from_str(colony_address).unwrap();
+                    let colony = H160::from_str(colony_address).expect("Invalid colony address");
                     let gate = Gate {
                         role_id: *role_id,
                         condition: Box::new(ReputationGate {
-                            colony,
-                            domain: *domain_id,
-                            reputation: *reputation,
+                            colony_address: colony,
+                            colony_domain: *domain_id,
+                            reputation_threshold_scaled: u256_from_f64_saturating(
+                                *reputation * PRECISION_FACTOR,
+                            ),
                         }),
                     };
                     storage.add_gate(guild_id, gate);
@@ -239,13 +244,15 @@ pub fn execute(cli: &Cli) {
             reputation,
             role_id,
         }))) => {
-            let colony = H160::from_str(colony_address).unwrap();
+            let colony = H160::from_str(colony_address).expect("Invalid colony address");
             let gate = Gate {
                 role_id: *role_id,
                 condition: Box::new(ReputationGate {
-                    colony,
-                    domain: *domain_id,
-                    reputation: *reputation,
+                    colony_address: colony,
+                    colony_domain: *domain_id,
+                    reputation_threshold_scaled: u256_from_f64_saturating(
+                        *reputation * PRECISION_FACTOR,
+                    ),
                 }),
             };
             match CONFIG.wait().storage.storage_type {
@@ -267,7 +274,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             rt.block_on(discord::register_global_slash_commands())
         }
 
@@ -275,7 +282,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             rt.block_on(discord::register_guild_slash_commands(*guild_id));
         }
 
@@ -283,7 +290,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             rt.block_on(discord::delete_global_slash_commands())
         }
 
@@ -291,7 +298,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             rt.block_on(discord::delete_guild_slash_commands(*guild_id));
         }
 
@@ -299,7 +306,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             let controller: Controller<SledEncryptedStorage> = Controller::new();
             let user_result = controller.storage.get_user(&user_id);
             let gates = controller.storage.list_gates(&guild_id);
@@ -317,7 +324,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             let controller: Controller<SledEncryptedStorage> = Controller::new();
             let message_tx = controller.message_tx.clone();
             rt.spawn(controller.spawn());
@@ -330,7 +337,7 @@ pub fn execute(cli: &Cli) {
                         response_tx,
                     })
                     .await
-                    .unwrap();
+                    .expect("Failed to send batch message to controller");
             });
             rt.block_on(async move {
                 while let Some(response) = response_rx.recv().await {
@@ -350,7 +357,7 @@ pub fn execute(cli: &Cli) {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+                .expect("Failed to build tokio runtime");
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     info!("Using unencrypted storage");

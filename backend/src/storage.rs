@@ -4,6 +4,7 @@
 
 use crate::config::CONFIG;
 use crate::gate::Gate;
+use anyhow::{anyhow, bail, Result};
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
     aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -14,7 +15,7 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// The storage trait that defines the methods that need to be implemented
 /// for a storage backend
@@ -24,15 +25,15 @@ pub trait Storage {
     type GuildIter: Iterator<Item = u64>;
     fn new() -> Self;
     fn list_guilds(&self) -> Self::GuildIter;
-    fn remove_guild(&mut self, guild_id: u64);
-    fn add_gate(&mut self, guild_id: &u64, gate: Gate);
+    fn remove_guild(&mut self, guild_id: u64) -> Result<()>;
+    fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter;
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate);
+    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
     fn get_user(&self, user_id: &u64) -> Option<String>;
     fn list_users(&self) -> Self::UserIter;
-    fn add_user(&mut self, user_id: u64, wallet: String);
+    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()>;
     fn contains_user(&self, user_id: &u64) -> bool;
-    fn remove_user(&mut self, user_id: &u64);
+    fn remove_user(&mut self, user_id: &u64) -> Result<()>;
 }
 
 /// The in-memory storage backend which does not persist data to disk
@@ -57,18 +58,29 @@ impl Storage for InMemoryStorage {
         self.gates.clone().into_keys()
     }
 
-    fn remove_guild(&mut self, guild_id: u64) {
-        self.gates.remove(&guild_id);
+    fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
+        self.gates
+            .remove(&guild_id)
+            .ok_or(anyhow!("guild {} does not exist", guild_id))?;
+        Ok(())
     }
 
-    fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
+    fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
         self.gates.entry(*guild_id).or_default().push(gate);
+        Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
-        let mut gates = self.gates.get(guild_id).unwrap().clone();
+    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        let mut gates = match self.gates.get(guild_id) {
+            Some(gates) => gates.clone(),
+            None => {
+                error!("No gates found for guild {}", guild_id);
+                bail!("No gates found for guild {}", guild_id);
+            }
+        };
         gates.retain(|g| g != &gate);
         self.gates.insert(*guild_id, gates);
+        Ok(())
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
@@ -86,16 +98,20 @@ impl Storage for InMemoryStorage {
     fn list_users(&self) -> Self::UserIter {
         self.users.clone().into_iter()
     }
-    fn add_user(&mut self, user_id: u64, wallet: String) {
+    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
         self.users.insert(user_id, wallet);
+        Ok(())
     }
 
     fn contains_user(&self, user_id: &u64) -> bool {
         self.users.contains_key(user_id)
     }
 
-    fn remove_user(&mut self, user_id: &u64) {
-        self.users.remove(user_id);
+    fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        self.users
+            .remove(user_id)
+            .ok_or(anyhow!("user {} does not exist", user_id))?;
+        Ok(())
     }
 }
 
@@ -126,24 +142,27 @@ impl Storage for SledUnencryptedStorage {
         })
     }
 
-    fn remove_guild(&mut self, guild_id: u64) {
+    fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
         let tree_name = guild_id.to_be_bytes().to_vec();
-        self.db.drop_tree(tree_name).unwrap();
+        self.db.drop_tree(tree_name)?;
+        Ok(())
     }
 
-    fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        let gate_bytes = bincode::serialize(&gate).unwrap();
+    fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
+        let gate_bytes = bincode::serialize(&gate)?;
         let key = gate.identifier();
         debug!("Adding gate {:?} with key {}", gate, key);
-        tree.insert(key.to_be_bytes(), gate_bytes).unwrap();
+        tree.insert(key.to_be_bytes(), gate_bytes)?;
+        Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
+    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         let key = gate.identifier();
         debug!("Removing gate {:?} with key {}", gate, key);
-        tree.remove(key.to_be_bytes()).unwrap();
+        tree.remove(key.to_be_bytes())?;
+        Ok(())
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
@@ -172,18 +191,19 @@ impl Storage for SledUnencryptedStorage {
         })
     }
 
-    fn add_user(&mut self, user_id: u64, wallet: String) {
+    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
         self.db
-            .insert(user_id.to_be_bytes(), bincode::serialize(&wallet).unwrap())
-            .unwrap();
+            .insert(user_id.to_be_bytes(), bincode::serialize(&wallet)?)?;
+        Ok(())
     }
 
     fn contains_user(&self, user_id: &u64) -> bool {
-        self.db.contains_key(user_id.to_be_bytes()).unwrap()
+        self.db.contains_key(user_id.to_be_bytes()).unwrap_or(false)
     }
 
-    fn remove_user(&mut self, user_id: &u64) {
-        self.db.remove(user_id.to_be_bytes()).unwrap();
+    fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        self.db.remove(user_id.to_be_bytes())?;
+        Ok(())
     }
 }
 
@@ -215,22 +235,25 @@ impl Storage for SledEncryptedStorage {
         })
     }
 
-    fn remove_guild(&mut self, guild_id: u64) {
+    fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
         let tree_name = guild_id.to_be_bytes().to_vec();
-        self.db.drop_tree(tree_name).unwrap();
+        self.db.drop_tree(tree_name)?;
+        Ok(())
     }
 
-    fn add_gate(&mut self, guild_id: &u64, gate: Gate) {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        let gate_bytes = bincode::serialize(&gate).unwrap();
+    fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
+        let gate_bytes = bincode::serialize(&gate)?;
         let key = gate.identifier();
-        tree.insert(key.to_be_bytes(), gate_bytes).unwrap();
+        tree.insert(key.to_be_bytes(), gate_bytes)?;
+        Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
+    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         let key = gate.identifier();
-        tree.remove(key.to_be_bytes()).unwrap();
+        tree.remove(key.to_be_bytes())?;
+        Ok(())
     }
 
     fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
@@ -260,22 +283,22 @@ impl Storage for SledEncryptedStorage {
         })
     }
 
-    fn add_user(&mut self, user_id: u64, wallet: String) {
+    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
         let encrypted = EncryptionWrapper::new(wallet);
-        self.db
-            .insert(
-                user_id.to_be_bytes(),
-                bincode::serialize(&encrypted).unwrap(),
-            )
-            .unwrap();
+        self.db.insert(
+            user_id.to_be_bytes(),
+            bincode::serialize(&encrypted).unwrap(),
+        )?;
+        Ok(())
     }
 
     fn contains_user(&self, user_id: &u64) -> bool {
         self.db.contains_key(user_id.to_be_bytes()).unwrap()
     }
 
-    fn remove_user(&mut self, user_id: &u64) {
-        self.db.remove(user_id.to_be_bytes()).unwrap();
+    fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        self.db.remove(user_id.to_be_bytes())?;
+        Ok(())
     }
 }
 

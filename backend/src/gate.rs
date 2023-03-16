@@ -7,6 +7,7 @@ use std::boxed::Box;
 use std::fmt::Display;
 mod reputation;
 pub use reputation::ReputationGate;
+pub use reputation::PRECISION_FACTOR;
 mod token;
 pub use token::TokenGate;
 

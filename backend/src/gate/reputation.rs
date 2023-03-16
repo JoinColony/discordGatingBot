@@ -1,11 +1,10 @@
-use crate::config::CONFIG;
 use crate::gate::{
     GateOption, GateOptionType, GateOptionValue, GateOptionValueType, GatingCondition,
 };
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use cached::{proc_macro::cached, Cached, TimedCache};
-use colony_rs::{get_reputation_in_domain, H160, U512};
+use colony_rs::{get_reputation_in_domain, u256_from_f64_saturating, H160, U256, U512};
 use governor::{
     clock::DefaultClock,
     state::{direct::NotKeyed, InMemoryState},
@@ -14,12 +13,19 @@ use governor::{
 use nonzero_ext::*;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
+use std::{boxed::Box, ops::Sub};
 use tracing::{debug, error, info, trace, warn};
+
+/// this must be smaller than 1e76 or so, to not overflow the U512
+/// multiplications
+pub const PRECISION_FACTOR: f64 = (std::u128::MAX / 2) as f64 / 100.0;
+/// this must be smaller than 1e78 or so, to not overflow the U512
+/// multiplications
+static PRECISION_FACTOR_TIMES_100: Lazy<U512> = Lazy::new(|| U512::from(std::u128::MAX / 2));
 
 pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> =
     Lazy::new(|| RateLimiter::direct(Quota::per_second(nonzero!(100u32))));
@@ -28,11 +34,13 @@ pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>
 #[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
 pub struct ReputationGate {
     /// The colony address in which the reputation should be looked up
-    pub colony: H160,
+    pub colony_address: H160,
     /// The domain in which the reputation should be looked up  
-    pub domain: u64,
-    /// The reputation amount required to be granted the role
-    pub reputation: u32,
+    pub colony_domain: u64,
+    /// The reputation percentage in a domain required to be granted the role
+    /// scaled by the precision factor to not lose everything after the comma in
+    /// the f64 conversion
+    pub reputation_threshold_scaled: U256,
 }
 
 #[typetag::serde]
@@ -82,7 +90,7 @@ impl GatingCondition for ReputationGate {
         if options[0].name != "colony" {
             bail!("First option must be colony");
         }
-        let colony = match &options[0].value {
+        let colony_address = match &options[0].value {
             GateOptionValueType::String(s) => H160::from_str(&s)?,
             _ => bail!("Invalid option type, expected string for colony address"),
         };
@@ -99,51 +107,38 @@ impl GatingCondition for ReputationGate {
         if options[2].name != "reputation" {
             bail!("Third option must be reputation");
         }
-        let precision = CONFIG.wait().precision;
-        // TODO: can we make precision a u32 in the first place?
-        let factor = 10u32.pow(precision as u32);
-        let reputation = match &options[2].value {
-            GateOptionValueType::F64(i) => *i as u32,
+        let reputation_percentage = match &options[2].value {
+            GateOptionValueType::F64(f) => *f,
             _ => bail!("Invalid option type, expected float for reputation"),
         };
-
-        if reputation > 100 * factor {
+        if reputation_percentage > 100.0 {
             bail!("Reputation must be 100 or less")
         }
+        if reputation_percentage < 0.0 {
+            bail!("Reputation must be 0 or more")
+        }
+        let reputation_threshold_scaled =
+            u256_from_f64_saturating(reputation_percentage * PRECISION_FACTOR);
 
         Ok(Box::new(ReputationGate {
-            colony,
-            domain: domain as u64,
-            reputation,
+            colony_address,
+            colony_domain: domain as u64,
+            reputation_threshold_scaled,
         }))
     }
 
     async fn check(&self, wallet_address: H160) -> bool {
-        let reputation_percentage =
-            match check_reputation(wallet_address, self.colony, self.domain).await {
-                Ok(percentage) => percentage,
-                Err(why) => {
-                    info!("Error checking reputation: {:?}", why);
-                    return false;
-                }
-            };
-        debug!(
-            "Reputation percentage: {} for wallet: {:?}",
-            reputation_percentage, wallet_address
-        );
-        let guard = COLONY_CACHE.lock().await;
-        let hits = guard.cache_hits();
-        let misses = guard.cache_misses();
-        let size = guard.cache_size();
-        debug!(
-            "Colony reputation cache hits: {:?}, misses: {:?}, size: {}",
-            hits, misses, size
-        );
-        if reputation_percentage >= self.reputation {
-            true
-        } else {
+        check_reputation(
+            self.reputation_threshold_scaled,
+            wallet_address,
+            self.colony_address,
+            self.colony_domain,
+        )
+        .await
+        .unwrap_or_else(|why| {
+            error!("Error checking reputation: {}", why);
             false
-        }
+        })
     }
 
     fn hashed(&self) -> u64 {
@@ -153,17 +148,18 @@ impl GatingCondition for ReputationGate {
     }
 
     fn fields(&self) -> Vec<GateOptionValue> {
-        let precision = CONFIG.wait().precision;
-        let factor = 10.0f64.powi(-(precision as i32));
-        let reputation = self.reputation as f64 * factor;
+        // This should not panic, since we validate the options to be lower than
+        // 100 and the precision factor must be < u128::MAX / 100 for this to
+        // work reliably with conversion errors
+        let reputation = self.reputation_threshold_scaled.as_u128() as f64 / PRECISION_FACTOR;
         vec![
             GateOptionValue {
                 name: "colony".to_string(),
-                value: GateOptionValueType::String(format!("{:?}", self.colony)),
+                value: GateOptionValueType::String(format!("{:?}", self.colony_address)),
             },
             GateOptionValue {
                 name: "domain".to_string(),
-                value: GateOptionValueType::I64(self.domain as i64),
+                value: GateOptionValueType::I64(self.colony_domain as i64),
             },
             GateOptionValue {
                 name: "reputation".to_string(),
@@ -175,7 +171,12 @@ impl GatingCondition for ReputationGate {
 
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
-async fn check_reputation(wallet: H160, colony: H160, domain: u64) -> Result<u32> {
+async fn check_reputation(
+    reputation_percentage: U256,
+    wallet: H160,
+    colony: H160,
+    domain: u64,
+) -> Result<bool> {
     debug!(
         "Checking reputation for wallet {:?} in colony {:?} domain {}",
         wallet, colony, domain
@@ -237,10 +238,11 @@ async fn check_reputation(wallet: H160, colony: H160, domain: u64) -> Result<u32
             "0".to_string()
         }
     };
-    Ok(calculate_reputation_percentage(
+    calculate_reputation_percentage(
+        reputation_percentage,
         &base_reputation_str,
         &user_reputation_str,
-    ))
+    )
 }
 
 #[cached(
@@ -262,14 +264,30 @@ async fn get_reputation_in_domain_cached(
     }
 }
 
-fn calculate_reputation_percentage(base_reputation_str: &str, user_reputation_str: &str) -> u32 {
-    // Since we have big ints for the reputation and a reputation threshold
-    // in percent, we need to do some math to get the correct result
-    // also the precision of the reputation threshold is variable
-    let base_reputation = U512::from_dec_str(&base_reputation_str).unwrap();
-    let user_reputation = U512::from_dec_str(&user_reputation_str).unwrap();
-    let precision = CONFIG.wait().precision;
-    let factor = U512::from(10).pow(U512::from(precision)) * U512::from(100);
-    let reputation = user_reputation * factor / base_reputation;
-    reputation.as_u32()
+fn calculate_reputation_percentage(
+    reputation_threshold_scaled: U256,
+    base_reputation_str: &str,
+    user_reputation_str: &str,
+) -> Result<bool> {
+    // Since we have big integers for the reputation and a reputation threshold
+    // in percent, we can't just build the quotient and compare it to the
+    // threshold. Instead we do a little algebra and only multiply integers
+    //
+    // threshold% * PRECISION_FACTOR <= 100% * PRECISION_FACTOR * user_reputation / base_reputation
+    // => threshold * PRECISION_FACTOR * base_reputation <= 100 * PRECISION_FACTOR * user_reputation
+    //
+    let base_reputation = U512::from_dec_str(&base_reputation_str)?;
+    let user_reputation = U512::from_dec_str(&user_reputation_str)?;
+    let reputation_threshold_scaled = U512::from(reputation_threshold_scaled);
+    let left_side = reputation_threshold_scaled
+        .checked_mul(base_reputation)
+        .ok_or(anyhow!(
+            "Failed to calculate reputation percentage left side, overflow"
+        ))?;
+    let right_side = PRECISION_FACTOR_TIMES_100
+        .checked_mul(user_reputation)
+        .ok_or(anyhow!(
+            "Failed to calculate reputation percentage right side, overflow"
+        ))?;
+    Ok(left_side <= right_side)
 }
