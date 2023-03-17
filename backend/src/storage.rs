@@ -172,15 +172,19 @@ impl Storage for SledUnencryptedStorage {
     }
 
     fn get_user(&self, user_id: &u64) -> Option<String> {
-        let wallet = self.db.get(user_id.to_be_bytes()).unwrap();
-        if let Some(wallet) = wallet {
-            let wallet: String = bincode::deserialize(&wallet).unwrap();
-            Some(wallet)
-        } else {
+        let wallet = match self.db.get(user_id.to_be_bytes()) {
+            Ok(Some(wallet)) => wallet,
+            Ok(None) => return None,
+            Err(e) => {
+                error!("Failed to get user wallet: {}", e);
+                return None;
+            }
+        };
+        bincode::deserialize(&wallet).unwrap_or_else(|why| {
+            error!("Failed to deserialize user wallet: {}", why);
             None
-        }
+        })
     }
-
     fn list_users(&self) -> Self::UserIter {
         self.db.iter().map(|x| {
             let (key, value) = x.unwrap();

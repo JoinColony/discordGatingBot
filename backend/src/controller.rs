@@ -5,7 +5,7 @@
 
 use crate::gate::Gate;
 use crate::{config::CONFIG, storage::Storage};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Error, Result};
 use chacha20poly1305::{
     aead::generic_array::GenericArray,
     aead::{Aead, AeadCore, KeyInit, OsRng},
@@ -15,7 +15,6 @@ use colony_rs::H160;
 use futures::FutureExt;
 use hex;
 use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::{
     collections::HashSet,
@@ -89,6 +88,7 @@ pub enum Message {
 pub enum CheckResponse {
     Grant(Vec<u64>),
     Register(String),
+    Error(Error),
 }
 
 #[derive(Debug)]
@@ -111,6 +111,7 @@ pub enum RegisterResponse {
 pub enum UnRegisterResponse {
     NotRegistered,
     Unregister(String),
+    Error(Error),
 }
 
 /// The main business logic instance. It holds a storage instance and a channel
@@ -168,7 +169,9 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     Message::Roles { guild_id, response } => {
                         let gates = controller.storage.list_gates(&guild_id);
                         let roles = HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
-                        response.send(roles).unwrap();
+                        if let Err(why) = response.send(roles) {
+                            error!("Failed to send roles: {:?}", why);
+                        }
                     }
                     Message::List { guild_id, response } => {
                         debug!("Received list request for guild {}", guild_id);
@@ -192,16 +195,29 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
 
                         let user_result = controller.storage.get_user(&user_id);
                         let gates = controller.storage.list_gates(&guild_id);
+
                         let wallet = match user_result {
                             Some(wallet) => wallet,
                             None => {
                                 let url = CONFIG.wait().server.url.clone();
                                 let session = Session::new(user_id, username);
+                                let encoded_session = match session.encode() {
+                                    Ok(session) => session,
+                                    Err(why) => {
+                                        error!("Failed to encode session: {:?}", why);
+                                        if let Err(why) =
+                                            response_tx.send(CheckResponse::Error(why))
+                                        {
+                                            error!("Failed to send register response: {:?}", why);
+                                        }
+                                        continue;
+                                    }
+                                };
                                 let url = format!(
                                     "{}/register/{}/{}",
                                     url,
                                     urlencoding::encode(&session.username),
-                                    session.encode()
+                                    encoded_session
                                 );
                                 if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
                                     error!("Failed to send CheckResponse::Register: {:?}", why);
@@ -307,11 +323,26 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                             Some(_) => {
                                 let url = CONFIG.wait().server.url.clone();
                                 let session = Session::new(user_id, username);
+                                let encoded_session = match session.encode() {
+                                    Ok(encoded) => encoded,
+                                    Err(why) => {
+                                        error!("Failed to encode session: {:?}", why);
+                                        if let Err(why) =
+                                            response_tx.send(UnRegisterResponse::Error(why))
+                                        {
+                                            error!(
+                                                "Failed to send UnregisterResponse::Error: {:?}",
+                                                why
+                                            );
+                                        };
+                                        continue;
+                                    }
+                                };
                                 let url = format!(
                                     "{}/unregister/{}/{}",
                                     url,
                                     urlencoding::encode(&session.username),
-                                    session.encode()
+                                    encoded_session,
                                 );
                                 if let Err(why) =
                                     response_tx.send(UnRegisterResponse::Unregister(url))
@@ -337,7 +368,12 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
     let mut set = JoinSet::new();
     for gate in gates {
         let wallet = wallet_arc.clone();
-        let wallet = H160::from_str(&wallet).unwrap();
+        let wallet = if let Ok(wallet) = H160::from_str(&wallet) {
+            wallet
+        } else {
+            error!("Invalid wallet address: {} ", wallet);
+            continue;
+        };
         set.spawn(gate.check(wallet));
     }
     let mut granted_roles = Vec::new();
@@ -356,7 +392,7 @@ pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Ve
 /// and is used to generate a url for the user to register their wallet.
 /// The session is encoded as a nonce and string separated by a dot.
 /// The string is an encrypted version of the user information
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
 pub struct Session {
     pub user_id: u64,
     pub username: String,
@@ -384,7 +420,7 @@ impl Session {
         timestamp - self.timestamp > 60
     }
 
-    pub fn encode(&self) -> String {
+    pub fn encode(&self) -> Result<String> {
         let plaintext_str = format!("{}:{}:{}", self.user_id, self.username, self.timestamp);
 
         let plaintext = plaintext_str.as_bytes();
@@ -393,10 +429,12 @@ impl Session {
 
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let ciphertext = cipher.encrypt(&nonce, plaintext).unwrap();
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|e| anyhow!("{e}"))?;
         let encoded_nonce = hex::encode(nonce);
         let encoded_ciphertext = hex::encode(ciphertext);
-        format!("{}.{}", encoded_nonce, encoded_ciphertext)
+        Ok(format!("{}.{}", encoded_nonce, encoded_ciphertext))
     }
 }
 
@@ -457,7 +495,7 @@ mod tests {
     async fn test_session() {
         setup().await;
         let session = Session::new(123, "test".to_string());
-        let encoded = session.encode();
+        let encoded = session.encode().unwrap();
         let decoded = Session::from_str(&encoded).unwrap();
         assert_eq!(session.user_id, decoded.user_id);
         assert_eq!(session.username, decoded.username);

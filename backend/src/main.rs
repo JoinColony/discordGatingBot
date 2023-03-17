@@ -59,14 +59,15 @@ fn main() {
         .frequency(1000)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
         .build()
-        .unwrap();
+        .expect("Failed to start profiler");
     let cli = Cli::parse();
     config::setup_config(&cli.cfg).expect("Failed to setup config");
     logging::setup_logging();
     command::execute(&cli);
     #[cfg(feature = "profiling")]
     if let Ok(report) = guard.report().build() {
-        let file = std::fs::File::create("flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
+        let file =
+            std::fs::File::create("flamegraph.svg").expect("Failed to create file for flamegraph");
+        report.flamegraph(file).expect("Failed to write flamegraph");
     };
 }

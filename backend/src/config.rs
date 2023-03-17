@@ -41,7 +41,7 @@ pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
         .with_fallback(env)
         .with_fallback(file)
         .with_fallback(default);
-    let cfg = GlobalConfig::from_partial(merged).unwrap();
+    let cfg = GlobalConfig::from_partial(merged).expect("Invalid configuration");
     CONFIG.set(cfg).expect("Failed to set config");
     Ok(())
 }
@@ -49,7 +49,8 @@ pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
 /// Prints the different sources and finally merged configuration to stdout
 pub fn print_config(raw_cli_cfg: &CliConfig) {
     let (cli_cfg, env, file, default, config_file) = get_config_hirarchy(&raw_cli_cfg);
-    let default_config = GlobalConfig::from_partial(default).unwrap();
+    let default_config =
+        GlobalConfig::from_partial(default).expect("Invalid default configuration");
     println!("Default config: {:#?}", default_config);
 
     if !env.is_empty() {
@@ -72,8 +73,10 @@ pub fn print_config(raw_cli_cfg: &CliConfig) {
     }
 
     if let Ok(file_content) = fs::read_to_string(&config_file) {
-        let token_re = Regex::new(r"(?m)^\s*token\s*=.*").unwrap();
-        let key_re = Regex::new(r"(?m)^\s*key\s*=.*").unwrap();
+        let token_re = Regex::new(r"(?m)^\s*token\s*=.*")
+            .expect("Invalid hardcoded regex, this should not happen");
+        let key_re = Regex::new(r"(?m)^\s*key\s*=.*")
+            .expect("Invalid hardcoded regex, this should not happen");
         let without_token = token_re.replace_all(&file_content, "token = \"<redacted>\"");
         let without_key = key_re.replace_all(&without_token, "key = \"<redacted>\"");
         println!(
@@ -92,7 +95,7 @@ pub fn print_config(raw_cli_cfg: &CliConfig) {
         .with_fallback(env)
         .with_fallback(file)
         .with_fallback(default);
-    let cfg = GlobalConfig::from_partial(merged).unwrap();
+    let cfg = GlobalConfig::from_partial(merged).expect("Invalid configuration");
 
     println!("\n\nMerged config: {:#?}", cfg);
 }
@@ -128,7 +131,7 @@ fn get_config_hirarchy(
             key: raw_cli_cfg.storage.key.clone(),
         },
     };
-    let env = PartialConf::from_env().unwrap();
+    let env = PartialConf::from_env().expect("Could not build config from env");
     let config_file = if let Some(ref config_file) = cli_cfg.config_file {
         config_file.clone()
     } else if let Some(ref config_file) = env.config_file {
@@ -138,7 +141,7 @@ fn get_config_hirarchy(
     };
     let file: PartialConf = File::with_format(&config_file, FileFormat::Toml)
         .load()
-        .unwrap();
+        .expect("Could not build config from file");
 
     let default = PartialConf::default_values();
     (cli_cfg, env, file, default, config_file)
