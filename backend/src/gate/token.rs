@@ -3,7 +3,7 @@ use crate::gate::{
 };
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use colony_rs::{balance_off, H160, U256};
+use colony_rs::{balance_off, get_token_symbol, H160, U256};
 use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
@@ -15,8 +15,10 @@ use tracing::{debug, error, info, trace, warn};
 /// This is stored in the database for each discord server.
 #[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
 pub struct TokenGate {
+    pub chain_id: U256,
     /// The token address on the gnossis chain
     pub token_address: H160,
+    pub token_symbol: String,
     /// The amount of the token held
     pub amount: u64,
 }
@@ -56,7 +58,7 @@ impl GatingCondition for TokenGate {
         options
     }
 
-    fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
         if options.len() != 2 {
             bail!("Need exactly 2 options");
         }
@@ -74,8 +76,13 @@ impl GatingCondition for TokenGate {
             GateOptionValueType::I64(i) => *i,
             _ => bail!("Invalid option type"),
         };
+        let chain_id = U256::from(100);
+
+        let token_symbol = get_token_symbol(token_address).await?;
         Ok(Box::new(TokenGate {
+            chain_id,
             token_address,
+            token_symbol,
             amount: amount as u64,
         }))
     }
@@ -104,8 +111,16 @@ impl GatingCondition for TokenGate {
     fn fields(&self) -> Vec<GateOptionValue> {
         vec![
             GateOptionValue {
+                name: "chain_id".to_string(),
+                value: GateOptionValueType::String(format!("{:#x}", self.chain_id)),
+            },
+            GateOptionValue {
                 name: "token_address".to_string(),
                 value: GateOptionValueType::String(format!("{:?}", self.token_address)),
+            },
+            GateOptionValue {
+                name: "token_symbol".to_string(),
+                value: GateOptionValueType::String(format!("{:?}", self.token_symbol)),
             },
             GateOptionValue {
                 name: "amount".to_string(),

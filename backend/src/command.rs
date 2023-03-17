@@ -15,6 +15,7 @@ use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
 };
+use colony_rs::U256;
 use colony_rs::{u256_from_f64_saturating, H160};
 use std::str::FromStr;
 use tokio;
@@ -207,7 +208,9 @@ pub fn execute(cli: &Cli) {
                     let gate = Gate {
                         role_id: *role_id,
                         condition: Box::new(ReputationGate {
+                            chain_id: U256::from(100),
                             colony_address: colony,
+                            colony_name: "".to_string(),
                             colony_domain: *domain_id,
                             reputation_threshold_scaled: u256_from_f64_saturating(
                                 *reputation * PRECISION_FACTOR,
@@ -222,7 +225,9 @@ pub fn execute(cli: &Cli) {
                     let gate = Gate {
                         role_id: *role_id,
                         condition: Box::new(ReputationGate {
+                            chain_id: U256::from(100),
                             colony_address: colony,
+                            colony_name: "".to_string(),
                             colony_domain: *domain_id,
                             reputation_threshold_scaled: u256_from_f64_saturating(
                                 *reputation * PRECISION_FACTOR,
@@ -248,8 +253,10 @@ pub fn execute(cli: &Cli) {
             let gate = Gate {
                 role_id: *role_id,
                 condition: Box::new(ReputationGate {
+                    chain_id: U256::from(100),
                     colony_address: colony,
                     colony_domain: *domain_id,
+                    colony_name: "".to_string(),
                     reputation_threshold_scaled: u256_from_f64_saturating(
                         *reputation * PRECISION_FACTOR,
                     ),

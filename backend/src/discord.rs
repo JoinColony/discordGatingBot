@@ -6,7 +6,7 @@ use crate::controller::{
 };
 use crate::gate::{Gate, GateOptionType, GateOptionValue, GateOptionValueType};
 use crate::gates;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use futures::{stream, StreamExt};
 use secrecy::ExposeSecret;
 use serenity::{
@@ -104,11 +104,6 @@ pub async fn register_global_slash_commands() {
     if let Err(why) = Command::create_global_application_command(&http, make_get_command).await {
         error!("Error creating global slash command get: {:?}", why);
     }
-    if let Err(why) =
-        Command::create_global_application_command(&http, make_list_gates_command).await
-    {
-        error!("Error creating global slash command list gates: {:?}", why);
-    }
 }
 
 pub async fn delete_global_slash_commands() {
@@ -203,15 +198,18 @@ async fn gate_add_interaction_response(
     if role_id == guild_id {
         return Err(anyhow!("Role cannot be @everyone"));
     }
-    let gate = Gate::new(role_id, &name, &options)?;
+    let gate = Gate::new(role_id, &name, &options).await?;
     let message = controller::Message::Gate { guild_id, gate };
-    CONTROLLER_CHANNEL.wait().send(message).await.unwrap();
+    if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
+        error!("Error sending gate message: {:?}", why);
+    }
     let mut content = MessageBuilder::new();
     content.push("Your role: ");
     content.role(role_id);
     content.push_line(" is now being gated!");
     if !is_below_bot_in_hierarchy(role_position, &ctx, guild_id, command.application_id.into())
         .await
+        .unwrap_or(true)
     {
         content.push_line(
             "⚠️  The bot is currently below this role in the role hierarchy, \
@@ -226,9 +224,12 @@ async fn gate_add_interaction_response(
 async fn list_gates_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received list gates interaction");
-    let guild_id = command.guild_id.unwrap().into();
+    let guild_id = command
+        .guild_id
+        .ok_or(anyhow!("Error getting guild id from command"))?
+        .into();
     let (tx, rx) = oneshot::channel();
     let message = controller::Message::List {
         guild_id,
@@ -238,7 +239,7 @@ async fn list_gates_interaction_response(
         error!("Error sending message to controller: {:?}", err);
     }
 
-    let gates = rx.await.unwrap();
+    let gates = rx.await?;
     debug!("Received response from controller: {:?}", gates);
     if gates.is_empty() {
         respond(ctx, command, "No gates found", true).await?;
@@ -252,7 +253,7 @@ async fn list_gates_interaction_response(
             content.push("The role: ");
             content.role(gate.role_id);
             content.push_line(" is gated by the following criteria");
-            let follow_up = command
+            let follow_up = match command
                 .create_followup_message(ctx, |message| {
                     message
                         .ephemeral(true)
@@ -275,7 +276,13 @@ async fn list_gates_interaction_response(
                         })
                 })
                 .await
-                .unwrap();
+            {
+                Ok(follow_up) => follow_up,
+                Err(why) => {
+                    error!("Error sending follow up message: {:?}", why);
+                    return;
+                }
+            };
             let mut reaction_stream = follow_up
                 .await_component_interactions(&ctx)
                 .timeout(Duration::from_secs(15))
@@ -327,9 +334,11 @@ async fn list_gates_interaction_response(
 async fn enforce_gates_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received enforce gates interaction");
-    let guild_id = command.guild_id.unwrap();
+    let guild_id = command
+        .guild_id
+        .ok_or(anyhow!("Error getting guild id from command"))?;
     let (role_tx, role_rx) = tokio::sync::oneshot::channel();
     let message = controller::Message::Roles {
         guild_id: guild_id.into(),
@@ -338,7 +347,7 @@ async fn enforce_gates_interaction_response(
     if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
         error!("Error sending message to controller: {:?}", err);
     }
-    let managed_roles = role_rx.await.unwrap();
+    let managed_roles = role_rx.await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
     let members = ctx
         .http
@@ -372,7 +381,6 @@ async fn enforce_gates_interaction_response(
         user_ids,
         response_tx: tx,
     };
-    eprintln!("{:#?}", member_map);
     if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
         error!("Error sending message to controller: {:?}", err);
     }
@@ -421,43 +429,36 @@ async fn enforce_gates_interaction_response(
                     }
                 }
                 message.user(user_id);
-                message.push_line(" there was a role update for you!");
-
-                message.push_line(
-                    "You can always use the `/get in` command to \
-                                  check if new roles are available to you.",
-                );
                 message.push_line("");
                 if !gained_roles.is_empty() {
-                    message.push("You have been granted the following roles: ");
+                    message.push("has been granted the following roles: ");
                     for role in gained_roles {
                         message.role(*role);
                     }
                     message.push_line("");
                 }
                 if !lost_roles.is_empty() {
-                    message.push("You lost the following roles: ");
+                    message.push("lost the following roles: ");
                     for role in lost_roles {
                         message.role(*role);
                     }
                 }
                 if !failed_grants.is_empty() {
                     message.push_line("");
-                    message.push("there were problems however granting you the roles: ");
+                    message.push("there were problems granting the roles: ");
                     for role in failed_grants {
                         message.role(*role);
                     }
                 }
                 if !failed_losses.is_empty() {
                     message.push_line("");
-                    message
-                        .push("luckily for you, I couldn't remove the following roles from you: ");
+                    message.push("couldn't remove the following roles: ");
                     for role in failed_losses {
                         message.role(*role);
                     }
                 }
                 message.build();
-                follow_up(&ctx, command, message, false).await?;
+                follow_up(&ctx, command, message, true).await?;
             }
             BatchResponse::Done => break,
         }
@@ -468,13 +469,16 @@ async fn enforce_gates_interaction_response(
 async fn get_in_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received get in interaction");
     let (tx, rx) = oneshot::channel();
     let message = controller::Message::Check {
         user_id: command.user.id.into(),
         username: command.user.name.clone(),
-        guild_id: command.guild_id.unwrap().into(),
+        guild_id: command
+            .guild_id
+            .ok_or(anyhow!("Error getting guild id from command"))?
+            .into(),
         response_tx: tx,
     };
     if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
@@ -496,23 +500,22 @@ async fn get_in_interaction_response(
     .await?;
     let response = match rx.await {
         Ok(repsonse) => repsonse,
-        Err(err) => {
-            error!("Error receiving response from controller: {:?}", err);
-            return Err(SerenityError::Other(
-                "Error receiving response from controller",
-            ));
+        Err(why) => {
+            error!("Error receiving response from controller: {:?}", why);
+            bail!("Error receiving response from controller: {:?}", why);
         }
     };
     match response {
         CheckResponse::Grant(roles) => grant_roles(ctx, command, &roles).await,
         CheckResponse::Register(url) => register_user(ctx, command, &url).await,
+        CheckResponse::Error(why) => bail!("Error checking your reputation: {}", why),
     }
 }
 
 async fn get_out_interaction_response(
     command: &ApplicationCommandInteraction,
     ctx: &Context,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Received get out interaction");
     let (tx, rx) = oneshot::channel();
     let message = controller::Message::Unregister {
@@ -523,28 +526,21 @@ async fn get_out_interaction_response(
     if let Err(err) = CONTROLLER_CHANNEL.wait().send(message).await {
         error!("Error sending message to controller: {:?}", err);
     }
-    let response = rx.await.unwrap();
+    let response = rx.await?;
     match response {
         UnRegisterResponse::NotRegistered => {
             respond(ctx, command, "You are not registered", true).await
         }
         UnRegisterResponse::Unregister(url) => unregister_user(ctx, command, &url).await,
+        UnRegisterResponse::Error(why) => bail!("Error unregistering: {}", why),
     }
-}
-
-async fn unknown_interaction_response(
-    command: &ApplicationCommandInteraction,
-    ctx: &Context,
-) -> Result<(), SerenityError> {
-    warn!("Unknown interaction: {:?}", command);
-    respond(ctx, command, "Unknown command, Try /gate or /check", true).await
 }
 
 async fn register_user(
     ctx: &Context,
     command: &ApplicationCommandInteraction,
     url: &str,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Registering user with URL: {}", url);
     let message = format!(
         "You need to register your wallet address with your discord user to get \
@@ -558,7 +554,7 @@ async fn unregister_user(
     ctx: &Context,
     command: &ApplicationCommandInteraction,
     url: &str,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Unregistering user with URL: {}", url);
     let message = format!(
         "☠️ ☠️ ☠️  To unregister your wallet from your discord user follow this link \
@@ -572,7 +568,7 @@ async fn grant_roles(
     ctx: &Context,
     command: &ApplicationCommandInteraction,
     roles: &Vec<u64>,
-) -> Result<(), SerenityError> {
+) -> Result<()> {
     debug!("Granting roles: {:?}", roles);
     let mut granted_roles = Vec::new();
     let mut failed_roles = Vec::new();
@@ -580,7 +576,10 @@ async fn grant_roles(
         if let Err(why) = ctx
             .http
             .add_member_role(
-                command.guild_id.unwrap().into(),
+                command
+                    .guild_id
+                    .ok_or(anyhow!("Error getting guild id from command"))?
+                    .into(),
                 command.user.id.into(),
                 *role,
                 None,
@@ -596,10 +595,11 @@ async fn grant_roles(
     }
 
     let mut content = MessageBuilder::new();
+    content.user(&command.user);
     if granted_roles.is_empty() {
-        content.push_line("using the `/get in` command sadly, didn't give you any roles yet  😢");
+        content.push_line("used the `/get in` but sadly, didn't get any roles yet 😢");
     } else {
-        content.push("using the `/get in` command got you the following roles: ");
+        content.push("used the `/get in` command and got the following roles: ");
         for role in granted_roles.iter() {
             content.role(*role);
         }
@@ -621,23 +621,12 @@ async fn grant_roles(
         (true, false) => false,
         (false, true) => false,
     };
-    match follow_up(ctx, command, &content, ephemeral).await {
-        Ok(_) => Ok(()),
-        Err(why) => {
-            error!("Error sending follow up message: {:?}", why);
-            Err(why)
-        }
+    if ephemeral {
+        follow_up(ctx, command, &content, ephemeral).await
+    } else {
+        command.channel_id.say(&ctx.http, &content).await?;
+        Ok(())
     }
-}
-
-fn make_list_gates_command(
-    command: &mut CreateApplicationCommand,
-) -> &mut CreateApplicationCommand {
-    debug!("Creating list gates slash command");
-    command
-        .name("list_gates")
-        .description("Lists gates that are currently active for this server.")
-        .default_member_permissions(Permissions::MANAGE_GUILD)
 }
 
 fn make_gate_command(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
@@ -752,14 +741,14 @@ async fn respond(
     command: &ApplicationCommandInteraction,
     message: impl ToString,
     ephemeral: bool,
-) -> Result<(), SerenityError> {
-    command
+) -> Result<()> {
+    Ok(command
         .create_interaction_response(&ctx.http, |response| {
             response
                 .kind(InteractionResponseType::ChannelMessageWithSource)
                 .interaction_response_data(|m| m.content(message).ephemeral(ephemeral))
         })
-        .await
+        .await?)
 }
 
 async fn follow_up(
@@ -767,11 +756,11 @@ async fn follow_up(
     command: &ApplicationCommandInteraction,
     message: impl ToString,
     ephemeral: bool,
-) -> Result<(), SerenityError> {
-    command
+) -> Result<()> {
+    Ok(command
         .create_followup_message(&ctx.http, |m| m.content(message).ephemeral(ephemeral))
         .await
-        .map(|_| ())
+        .map(|_| ())?)
 }
 
 async fn is_below_bot_in_hierarchy(
@@ -779,20 +768,20 @@ async fn is_below_bot_in_hierarchy(
     ctx: &Context,
     guild_id: u64,
     bot_user_id: u64,
-) -> bool {
-    let bot_member = ctx.http.get_member(guild_id, bot_user_id).await.unwrap();
+) -> Result<bool> {
+    let bot_member = ctx.http.get_member(guild_id, bot_user_id).await?;
     let bot_roles = bot_member.roles;
-    let guild_roles = ctx.http.get_guild_roles(guild_id).await.unwrap();
+    let guild_roles = ctx.http.get_guild_roles(guild_id).await?;
     if let Some(max) = guild_roles
         .iter()
         .filter(|r| bot_roles.iter().any(|&br| br == r.id))
         .map(|r| r.position)
         .max()
     {
-        position < max as u64
+        Ok(position < max as u64)
     } else {
         error!("No bot roles found");
-        false
+        anyhow::bail!("No bot roles found");
     }
 }
 

@@ -9,6 +9,7 @@ mod reputation;
 pub use reputation::ReputationGate;
 pub use reputation::PRECISION_FACTOR;
 mod token;
+use futures::Future;
 pub use token::TokenGate;
 
 /// This macro gives us a way to access associated functions on all GatingConditions
@@ -38,16 +39,19 @@ macro_rules! gates {
         }
     };
 
-    (@construct $type:ident $options:ident : $($gate:ident),*) => {
-        (|| -> Result<Box<dyn $crate::gate::GatingCondition>> {
-            $(
-                if $crate::gate::$gate::name() == $type {
-                return Ok($crate::gate::$gate::from_options(&$options)? as Box<dyn $crate::gate::GatingCondition>);
-            })*
-            bail!("Unknown gate type: {}", $type)
-        })()
+    (@constructor: $($gate:ident),*) => {
+        {
+            async fn construct(gate_type: &str, options: &Vec<GateOptionValue>) -> Result<Box<dyn $crate::gate::GatingCondition>> {
+                $(
+                    if $crate::gate::$gate::name() == gate_type {
+                        return Ok($crate::gate::$gate::from_options(options).await? as Box<dyn $crate::gate::GatingCondition>);
+                    }
+                )*
+                bail!("Unknown gate type: {}", gate_type)
+            }
+            construct
+        }
     };
-
     ($($slector:ident)*) => {
         // Here new gating conditions can be added as long as they implement the
         // GatingCondition trait.
@@ -63,8 +67,12 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn new(role_id: u64, gate_type: &str, options: &Vec<GateOptionValue>) -> Result<Self> {
-        let condition = gates!(construct gate_type options)?;
+    pub async fn new(
+        role_id: u64,
+        gate_type: &str,
+        options: &Vec<GateOptionValue>,
+    ) -> Result<Self> {
+        let condition = gates!(constructor)(gate_type, options).await?;
         Ok(Self { role_id, condition })
     }
 
@@ -100,7 +108,7 @@ pub trait GatingCondition: std::fmt::Debug + Send + Sync + DynClone {
     fn options() -> Vec<GateOption>
     where
         Self: Sized;
-    fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>>
+    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>>
     where
         Self: Sized;
     async fn check(&self, wallet_address: H160) -> bool;

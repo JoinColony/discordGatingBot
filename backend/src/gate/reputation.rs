@@ -4,7 +4,9 @@ use crate::gate::{
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use cached::{proc_macro::cached, Cached, TimedCache};
-use colony_rs::{get_reputation_in_domain, u256_from_f64_saturating, H160, U256, U512};
+use colony_rs::{
+    get_colony_name, get_reputation_in_domain, u256_from_f64_saturating, H160, U256, U512,
+};
 use governor::{
     clock::DefaultClock,
     state::{direct::NotKeyed, InMemoryState},
@@ -33,8 +35,10 @@ pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>
 /// This is stored in the database for each discord server.
 #[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
 pub struct ReputationGate {
+    pub chain_id: U256,
     /// The colony address in which the reputation should be looked up
     pub colony_address: H160,
+    pub colony_name: String,
     /// The domain in which the reputation should be looked up  
     pub colony_domain: u64,
     /// The reputation percentage in a domain required to be granted the role
@@ -83,7 +87,7 @@ impl GatingCondition for ReputationGate {
         });
         options
     }
-    fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
         if options.len() != 3 {
             bail!("Need exactly 3 options");
         }
@@ -120,8 +124,14 @@ impl GatingCondition for ReputationGate {
         let reputation_threshold_scaled =
             u256_from_f64_saturating(reputation_percentage * PRECISION_FACTOR);
 
+        let colony_name = get_colony_name(colony_address).await?;
+
+        let chain_id = U256::from(100);
+
         Ok(Box::new(ReputationGate {
+            chain_id,
             colony_address,
+            colony_name,
             colony_domain: domain as u64,
             reputation_threshold_scaled,
         }))
@@ -154,8 +164,16 @@ impl GatingCondition for ReputationGate {
         let reputation = self.reputation_threshold_scaled.as_u128() as f64 / PRECISION_FACTOR;
         vec![
             GateOptionValue {
-                name: "colony".to_string(),
+                name: "chain_id".to_string(),
+                value: GateOptionValueType::String(format!("{:#x}", self.chain_id)),
+            },
+            GateOptionValue {
+                name: "colony_address".to_string(),
                 value: GateOptionValueType::String(format!("{:?}", self.colony_address)),
+            },
+            GateOptionValue {
+                name: "colony_name".to_string(),
+                value: GateOptionValueType::String(format!("{:?}", self.colony_name)),
             },
             GateOptionValue {
                 name: "domain".to_string(),
