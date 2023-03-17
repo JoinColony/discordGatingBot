@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use colony_rs::H160;
 use dyn_clone::DynClone;
+use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::fmt::Display;
@@ -9,7 +10,6 @@ mod reputation;
 pub use reputation::ReputationGate;
 pub use reputation::PRECISION_FACTOR;
 mod token;
-use futures::Future;
 pub use token::TokenGate;
 
 /// This macro gives us a way to access associated functions on all GatingConditions

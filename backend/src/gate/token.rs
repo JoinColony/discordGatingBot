@@ -3,7 +3,7 @@ use crate::gate::{
 };
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use colony_rs::{balance_off, get_token_symbol, H160, U256};
+use colony_rs::{balance_off, get_token_decimals, get_token_symbol, H160, U256};
 use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
@@ -19,6 +19,7 @@ pub struct TokenGate {
     /// The token address on the gnossis chain
     pub token_address: H160,
     pub token_symbol: String,
+    pub token_decimals: u8,
     /// The amount of the token held
     pub amount: u64,
 }
@@ -79,10 +80,12 @@ impl GatingCondition for TokenGate {
         let chain_id = U256::from(100);
 
         let token_symbol = get_token_symbol(token_address).await?;
+        let token_decimals = get_token_decimals(token_address).await?;
         Ok(Box::new(TokenGate {
             chain_id,
             token_address,
             token_symbol,
+            token_decimals,
             amount: amount as u64,
         }))
     }
@@ -95,11 +98,11 @@ impl GatingCondition for TokenGate {
                 return false;
             }
         };
-        error!(
+        debug!(
             "Balance for token {:?} and wallet {:?} is {:?}",
             self.token_address, wallet_address, balance
         );
-        balance >= U256::from(self.amount) * U256::from(1_000_000_000_000_000_000u64)
+        U256::from(self.amount) * U256::from(10).pow(self.token_decimals.into()) <= balance
     }
 
     fn hashed(&self) -> u64 {

@@ -859,7 +859,7 @@ dependencies = [
 [[package]]
 name = "colony-rs"
 version = "0.1.0"
-source = "git+https://github.com/JoinColony/colonyRS.git?branch=main#57a369f28d7e0e4dcbc77beba9b22fdbb93ebba7"
+source = "git+https://github.com/JoinColony/colonyRS.git?branch=main#b048d4b6c395c99eb27207e311689d364b15a535"
 dependencies = [
  "ethers",
  "eyre",
