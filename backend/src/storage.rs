@@ -27,10 +27,10 @@ pub trait Storage {
     fn list_guilds(&self) -> Self::GuildIter;
     fn remove_guild(&mut self, guild_id: u64) -> Result<()>;
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
-    fn list_gates(&self, guild_id: &u64) -> Self::GateIter;
+    fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter>;
     fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
-    fn get_user(&self, user_id: &u64) -> Option<String>;
-    fn list_users(&self) -> Self::UserIter;
+    fn get_user(&self, user_id: &u64) -> Result<String>;
+    fn list_users(&self) -> Result<Self::UserIter>;
     fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()>;
     fn contains_user(&self, user_id: &u64) -> bool;
     fn remove_user(&mut self, user_id: &u64) -> Result<()>;
@@ -83,20 +83,23 @@ impl Storage for InMemoryStorage {
         Ok(())
     }
 
-    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
+    fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
         if let Some(gates) = self.gates.get(&guild_id) {
-            gates.clone().into_iter()
+            Ok(gates.clone().into_iter())
         } else {
-            Vec::new().into_iter()
+            bail!("No gates found for guild {}", guild_id);
         }
     }
 
-    fn get_user(&self, user_id: &u64) -> Option<String> {
-        self.users.get(user_id).cloned()
+    fn get_user(&self, user_id: &u64) -> Result<String> {
+        self.users
+            .get(user_id)
+            .ok_or(anyhow!("User {} not found", user_id))
+            .cloned()
     }
 
-    fn list_users(&self) -> Self::UserIter {
-        self.users.clone().into_iter()
+    fn list_users(&self) -> Result<Self::UserIter> {
+        Ok(self.users.clone().into_iter())
     }
     fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
         self.users.insert(user_id, wallet);
@@ -121,9 +124,12 @@ pub struct SledUnencryptedStorage {
 }
 
 impl Storage for SledUnencryptedStorage {
-    type GateIter = std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Gate>;
-    type UserIter =
-        std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> (u64, String)>;
+    type GateIter =
+        std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
+    type UserIter = std::iter::FilterMap<
+        sled::Iter,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, String)>,
+    >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
     fn new() -> Self {
@@ -165,34 +171,51 @@ impl Storage for SledUnencryptedStorage {
         Ok(())
     }
 
-    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        tree.iter()
-            .map(|x| bincode::deserialize::<Gate>(&x.unwrap().1).unwrap())
+    fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
+        Ok(tree.iter().filter_map(|result| {
+            if let Ok((_, gate_bytes)) = result {
+                if let Ok(gate) = bincode::deserialize::<Gate>(&gate_bytes) {
+                    Some(gate)
+                } else {
+                    error!("Failed to deserialize gate");
+                    None
+                }
+            } else {
+                error!("Failed to get gate");
+                None
+            }
+        }))
     }
 
-    fn get_user(&self, user_id: &u64) -> Option<String> {
-        let wallet = match self.db.get(user_id.to_be_bytes()) {
-            Ok(Some(wallet)) => wallet,
-            Ok(None) => return None,
-            Err(e) => {
-                error!("Failed to get user wallet: {}", e);
-                return None;
-            }
+    fn get_user(&self, user_id: &u64) -> Result<String> {
+        let wallet = match self.db.get(user_id.to_be_bytes())? {
+            Some(wallet) => wallet,
+            None => bail!("User {} not found", user_id),
         };
-        bincode::deserialize(&wallet).unwrap_or_else(|why| {
-            error!("Failed to deserialize user wallet: {}", why);
-            None
-        })
+        Ok(bincode::deserialize(&wallet)?)
     }
-    fn list_users(&self) -> Self::UserIter {
-        self.db.iter().map(|x| {
-            let (key, value) = x.unwrap();
-            debug!("key: {:?}, value: {:?}", key, value);
-            let key: u64 = u64::from_be_bytes(key.to_vec().try_into().unwrap());
-            let value: String = bincode::deserialize(&value).unwrap();
-            (key, value)
-        })
+
+    fn list_users(&self) -> Result<Self::UserIter> {
+        Ok(self.db.iter().filter_map(|result| {
+            if let Ok((user_id, wallet)) = result {
+                if let Ok(user_id) = user_id.to_vec().try_into() {
+                    let user_id = u64::from_be_bytes(user_id);
+                    if let Ok(wallet) = bincode::deserialize::<String>(&wallet) {
+                        Some((user_id, wallet))
+                    } else {
+                        error!("Failed to deserialize user wallet");
+                        None
+                    }
+                } else {
+                    error!("Failed to deserialize user id");
+                    None
+                }
+            } else {
+                error!("Failed to get user");
+                None
+            }
+        }))
     }
 
     fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
@@ -218,9 +241,12 @@ pub struct SledEncryptedStorage {
 }
 
 impl Storage for SledEncryptedStorage {
-    type GateIter = std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Gate>;
-    type UserIter =
-        std::iter::Map<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> (u64, String)>;
+    type GateIter =
+        std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
+    type UserIter = std::iter::FilterMap<
+        sled::Iter,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, String)>,
+    >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
     fn new() -> Self {
@@ -260,44 +286,69 @@ impl Storage for SledEncryptedStorage {
         Ok(())
     }
 
-    fn list_gates(&self, guild_id: &u64) -> Self::GateIter {
-        let tree = self.db.open_tree(guild_id.to_be_bytes()).unwrap();
-        tree.iter()
-            .map(|x| bincode::deserialize::<Gate>(&x.unwrap().1).unwrap())
+    fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
+        let tree = self.db.open_tree(guild_id.to_be_bytes())?;
+        Ok(tree.iter().filter_map(|result| {
+            if let Ok((_, v)) = result {
+                if let Ok(gate) = bincode::deserialize::<Gate>(&v) {
+                    Some(gate)
+                } else {
+                    error!("Failed to deserialize gate");
+                    None
+                }
+            } else {
+                error!("Failed to get gate");
+                None
+            }
+        }))
     }
 
-    fn get_user(&self, user_id: &u64) -> Option<String> {
-        let wallet = self.db.get(user_id.to_be_bytes()).unwrap();
-        if let Some(wallet) = wallet {
-            let encrypted: EncryptionWrapper = bincode::deserialize(&wallet).unwrap();
-            Some(encrypted.decrypt())
-        } else {
-            None
-        }
+    fn get_user(&self, user_id: &u64) -> Result<String> {
+        let wallet = match self.db.get(user_id.to_be_bytes())? {
+            Some(wallet) => wallet,
+            None => bail!("User {} not found", user_id),
+        };
+        let encrypted: EncryptionWrapper = bincode::deserialize(&wallet)?;
+        encrypted.decrypt()
     }
 
-    fn list_users(&self) -> Self::UserIter {
-        self.db.iter().map(|x| {
-            let (key, value) = x.unwrap();
-            debug!("key: {:?}, value: {:?}", key, value);
-            let key: u64 = u64::from_be_bytes(key.to_vec().try_into().unwrap());
-            let encrypted: EncryptionWrapper = bincode::deserialize(&value).unwrap();
-            let decrypted = encrypted.decrypt();
-            (key, decrypted)
-        })
+    fn list_users(&self) -> Result<Self::UserIter> {
+        Ok(self.db.iter().filter_map(|result| {
+            if let Ok((user_id, wallet)) = result {
+                if let Ok(user_id) = user_id.to_vec().try_into() {
+                    let user_id = u64::from_be_bytes(user_id);
+                    if let Ok(wallet) = bincode::deserialize::<EncryptionWrapper>(&wallet) {
+                        match wallet.decrypt() {
+                            Ok(wallet) => Some((user_id, wallet)),
+                            Err(why) => {
+                                error!("Failed to decrypt user wallet: {}", why);
+                                None
+                            }
+                        }
+                    } else {
+                        error!("Failed to deserialize user wallet");
+                        None
+                    }
+                } else {
+                    error!("Failed to deserialize user id");
+                    None
+                }
+            } else {
+                error!("Failed to get user");
+                None
+            }
+        }))
     }
 
     fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
-        let encrypted = EncryptionWrapper::new(wallet);
-        self.db.insert(
-            user_id.to_be_bytes(),
-            bincode::serialize(&encrypted).unwrap(),
-        )?;
+        let encrypted = EncryptionWrapper::new(wallet)?;
+        self.db
+            .insert(user_id.to_be_bytes(), bincode::serialize(&encrypted)?)?;
         Ok(())
     }
 
     fn contains_user(&self, user_id: &u64) -> bool {
-        self.db.contains_key(user_id.to_be_bytes()).unwrap()
+        self.db.contains_key(user_id.to_be_bytes()).unwrap_or(false)
     }
 
     fn remove_user(&mut self, user_id: &u64) -> Result<()> {
@@ -315,28 +366,31 @@ struct EncryptionWrapper {
 }
 
 impl EncryptionWrapper {
-    fn new(plaintext: String) -> Self {
+    fn new(plaintext: String) -> Result<Self> {
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
-        let key_bytes = hex::decode(key_hex).unwrap();
+        let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         let ciphertext = cipher
             .encrypt(&nonce, plaintext.as_bytes())
-            .expect("encryption failure!");
-        Self {
+            .map_err(|e| anyhow!("{e}"))?;
+
+        Ok(Self {
             nonce: nonce.to_vec(),
             ciphertext: ciphertext.to_vec(),
-        }
+        })
     }
 
-    fn decrypt(&self) -> String {
+    fn decrypt(&self) -> Result<String> {
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
-        let key_bytes = hex::decode(key_hex).unwrap();
+        let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.nonce);
-        let plaintext = cipher.decrypt(&nonce, self.ciphertext.as_ref()).unwrap();
-        String::from_utf8(plaintext).unwrap()
+        let plaintext = cipher
+            .decrypt(&nonce, self.ciphertext.as_ref())
+            .map_err(|e| anyhow!("{e}"))?;
+        Ok(String::from_utf8(plaintext)?)
     }
 }

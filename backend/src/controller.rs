@@ -103,6 +103,7 @@ pub enum BatchResponse {
 pub enum RegisterResponse {
     AlreadyRegistered,
     Success,
+    Error(Error),
 }
 
 /// The response to a unregister message, sent back via the oneshot channel in the
@@ -164,26 +165,44 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                 match message {
                     Message::Gate { guild_id, gate } => {
                         debug!("Adding gate: {:?}", gate);
-                        controller.storage.add_gate(&guild_id, gate);
+                        if let Err(why) = controller.storage.add_gate(&guild_id, gate) {
+                            error!("Failed to add gate: {:?}", why);
+                        }
                     }
                     Message::Roles { guild_id, response } => {
-                        let gates = controller.storage.list_gates(&guild_id);
-                        let roles = HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
-                        if let Err(why) = response.send(roles) {
-                            error!("Failed to send roles: {:?}", why);
+                        match controller.storage.list_gates(&guild_id) {
+                            Ok(gates) => {
+                                let roles =
+                                    HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
+                                if let Err(why) = response.send(roles) {
+                                    error!("Failed to send roles: {:?}", why);
+                                }
+                            }
+                            Err(why) => {
+                                error!("Failed to list gates: {:?}", why);
+                            }
                         }
                     }
                     Message::List { guild_id, response } => {
                         debug!("Received list request for guild {}", guild_id);
-                        let gates = controller.storage.list_gates(&guild_id).collect();
-                        debug!("Sending list response gates {:?}", gates);
-                        if let Err(why) = response.send(gates) {
-                            error!("Failed to send list response: {:?}", why);
+                        match controller.storage.list_gates(&guild_id) {
+                            Ok(gate_iter) => {
+                                let gates = gate_iter.collect::<Vec<Gate>>();
+                                debug!("Sending list response gates {:?}", gates);
+                                if let Err(why) = response.send(gates) {
+                                    error!("Failed to send list response: {:?}", why);
+                                }
+                            }
+                            Err(why) => {
+                                error!("Failed to list gates: {:?}", why);
+                            }
                         }
                     }
                     Message::Delete { guild_id, gate } => {
                         debug!("Deleting gate: {:?}", gate);
-                        controller.storage.remove_gate(&guild_id, gate);
+                        if let Err(why) = controller.storage.remove_gate(&guild_id, gate) {
+                            error!("Failed to delete gate: {:?}", why);
+                        }
                     }
                     Message::Check {
                         user_id,
@@ -192,45 +211,59 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                         response_tx,
                     } => {
                         debug!("Checking user {} in guild {}", user_id, guild_id);
-
-                        let user_result = controller.storage.get_user(&user_id);
-                        let gates = controller.storage.list_gates(&guild_id);
-
-                        let wallet = match user_result {
-                            Some(wallet) => wallet,
-                            None => {
-                                let url = CONFIG.wait().server.url.clone();
-                                let session = Session::new(user_id, username);
-                                let encoded_session = match session.encode() {
-                                    Ok(session) => session,
-                                    Err(why) => {
-                                        error!("Failed to encode session: {:?}", why);
-                                        if let Err(why) =
-                                            response_tx.send(CheckResponse::Error(why))
-                                        {
-                                            error!("Failed to send register response: {:?}", why);
-                                        }
-                                        continue;
+                        if !controller.storage.contains_user(&user_id) {
+                            let url = CONFIG.wait().server.url.clone();
+                            let session = Session::new(user_id, username);
+                            let encoded_session = match session.encode() {
+                                Ok(session) => session,
+                                Err(why) => {
+                                    error!("Failed to encode session: {:?}", why);
+                                    if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                                        error!("Failed to send register response: {:?}", why);
                                     }
-                                };
-                                let url = format!(
-                                    "{}/register/{}/{}",
-                                    url,
-                                    urlencoding::encode(&session.username),
-                                    encoded_session
-                                );
-                                if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
-                                    error!("Failed to send CheckResponse::Register: {:?}", why);
-                                };
+                                    continue;
+                                }
+                            };
+                            let url = format!(
+                                "{}/register/{}/{}",
+                                url,
+                                urlencoding::encode(&session.username),
+                                encoded_session
+                            );
+                            if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
+                                error!("Failed to send CheckResponse::Register: {:?}", why);
+                            };
+                            continue;
+                        }
+
+                        let wallet = match controller.storage.get_user(&user_id) {
+                            Ok(wallet) => wallet,
+                            Err(why) => {
+                                error!("Failed to get user: {:?}", why);
+                                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                                    error!("Failed to send CheckResponse::Error: {:?}", why);
+                                }
                                 continue;
                             }
                         };
-                        debug!("User {} has wallet {}", user_id, wallet);
-                        let granted_roles = check_user(wallet, gates).await;
-                        debug!("Granted roles deduped: {:?}", granted_roles);
-                        if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
-                            error!("Failed to send CheckResponse::Grant: {:?}", why);
-                        };
+                        match controller.storage.list_gates(&guild_id) {
+                            Err(why) => {
+                                error!("Failed to list gates: {:?}", why);
+                                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                                    error!("Failed to send error response: {:?}", why);
+                                }
+                            }
+                            Ok(gates) => {
+                                debug!("User {} has wallet {}", user_id, wallet);
+                                let granted_roles = check_user(wallet, gates).await;
+                                debug!("Granted roles deduped: {:?}", granted_roles);
+                                if let Err(why) =
+                                    response_tx.send(CheckResponse::Grant(granted_roles))
+                                {
+                                    error!("Failed to send CheckResponse::Grant: {:?}", why);
+                                };
+                            }
+                        }
                     }
                     Message::Batch {
                         guild_id,
@@ -240,20 +273,24 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                         debug!("Batch checking users {:?} in guild {}", user_ids, guild_id);
                         let check_futures = user_ids
                             .into_iter()
-                            .filter_map(|user_id| {
-                                let user_result = controller.storage.get_user(&user_id);
-                                match user_result {
-                                    Some(wallet) => Some((user_id, wallet)),
-                                    None => {
-                                        debug!("User {} not registered", user_id);
+                            .filter_map(|user_id| match controller.storage.get_user(&user_id) {
+                                Ok(wallet) => Some((user_id, wallet)),
+                                Err(why) => {
+                                    error!("Failed to get user: {:?}", why);
+                                    return None;
+                                }
+                            })
+                            .filter_map(|(user_id, wallet)| {
+                                match controller.storage.list_gates(&guild_id) {
+                                    Ok(gates) => Some(
+                                        check_user(wallet, gates)
+                                            .map(move |granted_roles| (user_id, granted_roles)),
+                                    ),
+                                    Err(why) => {
+                                        error!("Failed to list gates: {:?}", why);
                                         None
                                     }
                                 }
-                            })
-                            .map(|(user_id, wallet)| {
-                                let gates = controller.storage.list_gates(&guild_id);
-                                check_user(wallet, gates)
-                                    .map(move |granted_roles| (user_id, granted_roles))
                             });
                         let mut set = JoinSet::new();
                         for fut in check_futures {
@@ -288,6 +325,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     } => {
                         debug!("Registering user {} with wallet {}", user_id, wallet);
                         if controller.storage.contains_user(&user_id) {
+                            debug!("User {} already registered", user_id);
                             if let Err(why) = response_tx.send(RegisterResponse::AlreadyRegistered)
                             {
                                 error!(
@@ -296,10 +334,16 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                                 );
                             };
                         } else {
-                            controller.storage.add_user(user_id, wallet);
-                            if let Err(why) = response_tx.send(RegisterResponse::Success) {
-                                error!("Failed to send RegisterResponse::Success: {:?}", why);
-                            };
+                            if let Err(why) = controller.storage.add_user(user_id, wallet) {
+                                error!("Failed to add user: {:?}", why);
+                                if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
+                                    error!("Failed to send RegisterResponse::Error: {:?}", why);
+                                };
+                            } else {
+                                if let Err(why) = response_tx.send(RegisterResponse::Success) {
+                                    error!("Failed to send RegisterResponse::Success: {:?}", why);
+                                };
+                            }
                         }
                     }
                     Message::Unregister {
@@ -308,19 +352,24 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                         response_tx,
                     } => {
                         debug!("Unregistering user {}", user_id);
+                        if !controller.storage.contains_user(&user_id) {
+                            if let Err(why) = response_tx.send(UnRegisterResponse::NotRegistered) {
+                                error!(
+                                    "Failed to send UnregisterResponse::NotRegistered: {:?}",
+                                    why
+                                );
+                            };
+                            continue;
+                        }
 
                         match controller.storage.get_user(&user_id) {
-                            None => {
-                                if let Err(why) =
-                                    response_tx.send(UnRegisterResponse::NotRegistered)
-                                {
-                                    error!(
-                                        "Failed to send UnregisterResponse::NotRegistered: {:?}",
-                                        why
-                                    );
+                            Err(why) => {
+                                error!("Failed to get user: {:?}", why);
+                                if let Err(why) = response_tx.send(UnRegisterResponse::Error(why)) {
+                                    error!("Failed to send UnregisterResponse::Error: {:?}", why);
                                 };
                             }
-                            Some(_) => {
+                            Ok(_) => {
                                 let url = CONFIG.wait().server.url.clone();
                                 let session = Session::new(user_id, username);
                                 let encoded_session = match session.encode() {
@@ -355,7 +404,9 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     }
                     Message::RemovUser { user_id } => {
                         debug!("Removing user {}", user_id);
-                        controller.storage.remove_user(&user_id);
+                        if let Err(why) = controller.storage.remove_user(&user_id) {
+                            error!("Failed to remove user: {:?}", why);
+                        }
                     }
                 }
             }

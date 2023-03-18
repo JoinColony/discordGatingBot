@@ -15,19 +15,19 @@ use governor::{
 use nonzero_ext::*;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use std::{boxed::Box, ops::Sub};
 use tracing::{debug, error, info, trace, warn};
 
-/// this must be smaller than 1e76 or so, to not overflow the U512
+/// this must be smaller than 1e76 or so, to not overflow the later U512
 /// multiplications
-pub const PRECISION_FACTOR: f64 = (std::u128::MAX / 2) as f64 / 100.0;
+pub const PRECISION_FACTOR: f64 = (std::u128::MAX >> 1) as f64 / 100.0;
 /// this must be smaller than 1e78 or so, to not overflow the U512
 /// multiplications
-static PRECISION_FACTOR_TIMES_100: Lazy<U512> = Lazy::new(|| U512::from(std::u128::MAX / 2));
+static PRECISION_FACTOR_TIMES_100: Lazy<U512> = Lazy::new(|| U512::from(std::u128::MAX >> 1));
 
 pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> =
     Lazy::new(|| RateLimiter::direct(Quota::per_second(nonzero!(100u32))));

@@ -75,11 +75,15 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
-                    storage.remove_guild(*guild_id);
+                    storage
+                        .remove_guild(*guild_id)
+                        .expect("Failed to remove guild");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
-                    storage.remove_guild(*guild_id);
+                    storage
+                        .remove_guild(*guild_id)
+                        .expect("Failed to remove guild");
                 }
                 StorageType::InMemory => {
                     panic!("InMemory storage does not make sense for this command")
@@ -93,6 +97,7 @@ pub fn execute(cli: &Cli) {
                     let storage = SledUnencryptedStorage::new();
                     storage
                         .list_users()
+                        .expect("Failed to list users")
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
@@ -103,6 +108,7 @@ pub fn execute(cli: &Cli) {
                     let storage = SledEncryptedStorage::new();
                     storage
                         .list_users()
+                        .expect("Failed to list users")
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
@@ -122,11 +128,15 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
-                    storage.add_user(*user_id, wallet_address.to_string());
+                    storage
+                        .add_user(*user_id, wallet_address.to_string())
+                        .expect("Failed to add user");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
-                    storage.add_user(*user_id, wallet_address.to_string());
+                    storage
+                        .add_user(*user_id, wallet_address.to_string())
+                        .expect("Failed to add user");
                 }
                 StorageType::InMemory => {
                     panic!("InMemory storage does not make sense for this command")
@@ -138,11 +148,11 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
-                    storage.remove_user(user_id);
+                    storage.remove_user(user_id).expect("Failed to remove user");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
-                    storage.remove_user(user_id);
+                    storage.remove_user(user_id).expect("Failed to remove user");
                 }
                 StorageType::InMemory => {
                     panic!("InMemory storage does not make sense for this command")
@@ -163,6 +173,7 @@ pub fn execute(cli: &Cli) {
                         println!("\nGuild: {}", guild);
                         storage
                             .list_gates(&guild)
+                            .expect("Failed to list gates")
                             .skip(*start as usize)
                             .take(*end as usize - *start as usize)
                             .for_each(|gate| {
@@ -181,6 +192,7 @@ pub fn execute(cli: &Cli) {
                         println!("\nGuild: {}", guild);
                         storage
                             .list_gates(&guild)
+                            .expect("Failed to list gates")
                             .skip(*start as usize)
                             .take(*end as usize - *start as usize)
                             .for_each(|gate| {
@@ -217,7 +229,9 @@ pub fn execute(cli: &Cli) {
                             ),
                         }),
                     };
-                    storage.add_gate(guild_id, gate);
+                    storage
+                        .add_gate(guild_id, gate)
+                        .expect("Failed to add gate");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
@@ -234,7 +248,9 @@ pub fn execute(cli: &Cli) {
                             ),
                         }),
                     };
-                    storage.add_gate(guild_id, gate);
+                    storage
+                        .add_gate(guild_id, gate)
+                        .expect("Failed to add gate");
                 }
                 StorageType::InMemory => {
                     panic!("InMemory storage does not make sense for this command")
@@ -265,11 +281,15 @@ pub fn execute(cli: &Cli) {
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
-                    storage.remove_gate(guild_id, gate);
+                    storage
+                        .remove_gate(guild_id, gate)
+                        .expect("Failed to remove gate");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
-                    storage.remove_gate(guild_id, gate);
+                    storage
+                        .remove_gate(guild_id, gate)
+                        .expect("Failed to remove gate");
                 }
                 StorageType::InMemory => {
                     panic!("InMemory storage does not make sense for this command")
@@ -315,12 +335,14 @@ pub fn execute(cli: &Cli) {
                 .build()
                 .expect("Failed to build tokio runtime");
             let controller: Controller<SledEncryptedStorage> = Controller::new();
-            let user_result = controller.storage.get_user(&user_id);
-            let gates = controller.storage.list_gates(&guild_id);
-            let wallet = match user_result {
-                Some(wallet) => wallet,
-                None => return error!("User not found"),
-            };
+            let wallet = controller
+                .storage
+                .get_user(&user_id)
+                .expect("Failed to get user");
+            let gates = controller
+                .storage
+                .list_gates(&guild_id)
+                .expect("Failed to list gates");
             let roles = rt.block_on(controller::check_user(wallet, gates));
             println!("Roles: {:?}", roles);
         }

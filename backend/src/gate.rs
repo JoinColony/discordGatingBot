@@ -2,7 +2,6 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use colony_rs::H160;
 use dyn_clone::DynClone;
-use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::fmt::Display;
@@ -177,8 +176,8 @@ impl Display for GateOptionValueType {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_reputation_gate_from_options() {
+    #[tokio::test]
+    async fn test_reputation_gate_from_options() {
         let mut options = Vec::with_capacity(3);
 
         options.push(GateOptionValue {
@@ -195,7 +194,7 @@ mod tests {
             name: "reputation".to_string(),
             value: GateOptionValueType::I64(0),
         });
-        let gate = Gate::new(1, "reputation", &options).unwrap();
+        let gate = Gate::new(1, "reputation", &options).await.unwrap();
         assert_eq!(gate.role_id, 1);
         let fields = gate.condition.fields();
         let colony = if let GateOptionValueType::String(value) = &fields[0].value {
@@ -218,8 +217,8 @@ mod tests {
         assert_eq!(*reputation, 0);
     }
 
-    #[test]
-    fn test_token_gate_from_options() {
+    #[tokio::test]
+    async fn test_token_gate_from_options() {
         let mut options = Vec::with_capacity(2);
         options.push(GateOptionValue {
             name: "token_address".to_string(),
@@ -231,7 +230,7 @@ mod tests {
             name: "amount".to_string(),
             value: GateOptionValueType::I64(1),
         });
-        let gate = Gate::new(1, "token", &options).unwrap();
+        let gate = Gate::new(1, "token", &options).await.unwrap();
         assert_eq!(gate.role_id, 1);
         let fields = gate.condition.fields();
         let address = if let GateOptionValueType::String(value) = &fields[0].value {
