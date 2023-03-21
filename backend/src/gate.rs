@@ -10,6 +10,7 @@ pub use reputation::ReputationGate;
 pub use reputation::PRECISION_FACTOR;
 mod token;
 pub use token::TokenGate;
+use tracing::{instrument, Instrument};
 
 /// This macro gives us a way to access associated functions on all GatingConditions
 /// A new GatingCondition must be added to This macro to be useful in different
@@ -75,8 +76,17 @@ impl Gate {
         Ok(Self { role_id, condition })
     }
 
-    pub async fn check(self, address: H160) -> Option<u64> {
-        if self.condition.check(address).await {
+    pub fn name(&self) -> &'static str {
+        self.condition.instance_name()
+    }
+
+    pub fn fields(&self) -> Vec<GateOptionValue> {
+        self.condition.fields()
+    }
+
+    #[instrument(skip(self, address), fields(roled_id = self.role_id, identifier = self.identifier()))]
+    pub async fn check_condition(self, address: H160) -> Option<u64> {
+        if self.condition.check(address).in_current_span().await {
             Some(self.role_id)
         } else {
             None
@@ -113,6 +123,7 @@ pub trait GatingCondition: std::fmt::Debug + Send + Sync + DynClone {
     async fn check(&self, wallet_address: H160) -> bool;
     fn hashed(&self) -> u64;
     fn fields(&self) -> Vec<GateOptionValue>;
+    fn instance_name(&self) -> &'static str;
 }
 
 dyn_clone::clone_trait_object!(GatingCondition);

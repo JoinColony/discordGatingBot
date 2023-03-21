@@ -9,7 +9,7 @@ use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, instrument, Instrument};
 
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
@@ -59,7 +59,9 @@ impl GatingCondition for TokenGate {
         options
     }
 
+    #[instrument(level = "debug")]
     async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+        debug!("Creating token gate from options");
         if options.len() != 2 {
             bail!("Need exactly 2 options");
         }
@@ -79,8 +81,12 @@ impl GatingCondition for TokenGate {
         };
         let chain_id = U256::from(100);
 
-        let token_symbol = get_token_symbol(token_address).await?;
-        let token_decimals = get_token_decimals(token_address).await?;
+        let token_symbol = get_token_symbol(token_address).in_current_span().await?;
+        debug!(token_symbol, "Got token symbol:");
+        let token_decimals = get_token_decimals(token_address).in_current_span().await?;
+        debug!(token_decimals, "Got token decimals:");
+
+        debug!("Done creating token gate from options");
         Ok(Box::new(TokenGate {
             chain_id,
             token_address,
@@ -90,19 +96,22 @@ impl GatingCondition for TokenGate {
         }))
     }
 
+    #[instrument(name = "token_condition", skip(wallet_address))]
     async fn check(&self, wallet_address: H160) -> bool {
-        let balance = match balance_off(&self.token_address, &wallet_address).await {
+        let balance = match balance_off(&self.token_address, &wallet_address)
+            .in_current_span()
+            .await
+        {
             Ok(b) => b,
             Err(why) => {
                 error!("Failed to get balance: {}", why);
                 return false;
             }
         };
-        debug!(
-            "Balance for token {:?} and wallet {:?} is {:?}",
-            self.token_address, wallet_address, balance
-        );
-        U256::from(self.amount) * U256::from(10).pow(self.token_decimals.into()) <= balance
+        debug!(?balance, "Got token");
+        let amount_scaled = U256::from(self.amount) * U256::from(10).pow(self.token_decimals.into());
+        debug!(?amount_scaled, "Scaled amount");
+        amount_scaled <= balance
     }
 
     fn hashed(&self) -> u64 {
@@ -130,5 +139,9 @@ impl GatingCondition for TokenGate {
                 value: GateOptionValueType::I64(self.amount as i64),
             },
         ]
+    }
+
+    fn instance_name(&self) -> &'static str {
+        Self::name()
     }
 }

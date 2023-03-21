@@ -15,6 +15,7 @@ use colony_rs::H160;
 use futures::FutureExt;
 use hex;
 use once_cell::sync::OnceCell;
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 use std::{
     collections::HashSet,
@@ -25,7 +26,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinSet,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, instrument, Instrument, Span};
 use urlencoding;
 
 /// The global channel on which the controller can be communicated with
@@ -35,50 +36,58 @@ pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new()
 /// long as the application is running.
 static SESSION_KEY: OnceCell<Vec<u8>> = OnceCell::new();
 
-/// The message type is the main way for other parts of the application token
-/// communicate with the controller. It is an enum with variants for each
-/// possible message.
+/// The message type is the main way for other parts of the application to
+/// communicate with the controller.
 #[derive(Debug)]
 pub enum Message {
     List {
         guild_id: u64,
         response: oneshot::Sender<Vec<Gate>>,
+        span: Span,
     },
     Roles {
         guild_id: u64,
         response: oneshot::Sender<HashSet<u64>>,
+        span: Span,
     },
     Delete {
         guild_id: u64,
         gate: Gate,
+        span: Span,
     },
     Gate {
         guild_id: u64,
         gate: Gate,
+        span: Span,
     },
     Check {
         guild_id: u64,
         user_id: u64,
         username: String,
         response_tx: oneshot::Sender<CheckResponse>,
+        span: Span,
     },
     Batch {
         guild_id: u64,
         user_ids: Vec<u64>,
         response_tx: mpsc::Sender<BatchResponse>,
+        span: Span,
     },
     Register {
         user_id: u64,
-        wallet: String,
+        wallet: SecretString,
         response_tx: oneshot::Sender<RegisterResponse>,
+        span: Span,
     },
     Unregister {
         user_id: u64,
         username: String,
         response_tx: oneshot::Sender<UnRegisterResponse>,
+        span: Span,
     },
     RemovUser {
         user_id: u64,
+        span: Span,
     },
 }
 
@@ -158,282 +167,389 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         S: Storage + Send + 'static,
         <S as Storage>::GateIter: Send,
     {
-        let mut controller = self;
-        tokio::spawn(async move {
-            while let Some(message) = controller.message_rx.recv().await {
-                debug!("Received message: {:?}", message);
-                match message {
-                    Message::Gate { guild_id, gate } => {
-                        debug!("Adding gate: {:?}", gate);
-                        if let Err(why) = controller.storage.add_gate(&guild_id, gate) {
-                            error!("Failed to add gate: {:?}", why);
-                        }
-                    }
-                    Message::Roles { guild_id, response } => {
-                        match controller.storage.list_gates(&guild_id) {
-                            Ok(gates) => {
-                                let roles =
-                                    HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
-                                if let Err(why) = response.send(roles) {
-                                    error!("Failed to send roles: {:?}", why);
-                                }
-                            }
-                            Err(why) => {
-                                error!("Failed to list gates: {:?}", why);
-                            }
-                        }
-                    }
-                    Message::List { guild_id, response } => {
-                        debug!("Received list request for guild {}", guild_id);
-                        match controller.storage.list_gates(&guild_id) {
-                            Ok(gate_iter) => {
-                                let gates = gate_iter.collect::<Vec<Gate>>();
-                                debug!("Sending list response gates {:?}", gates);
-                                if let Err(why) = response.send(gates) {
-                                    error!("Failed to send list response: {:?}", why);
-                                }
-                            }
-                            Err(why) => {
-                                error!("Failed to list gates: {:?}", why);
-                            }
-                        }
-                    }
-                    Message::Delete { guild_id, gate } => {
-                        debug!("Deleting gate: {:?}", gate);
-                        if let Err(why) = controller.storage.remove_gate(&guild_id, gate) {
-                            error!("Failed to delete gate: {:?}", why);
-                        }
-                    }
-                    Message::Check {
-                        user_id,
-                        username,
-                        guild_id,
-                        response_tx,
-                    } => {
-                        debug!("Checking user {} in guild {}", user_id, guild_id);
-                        if !controller.storage.contains_user(&user_id) {
-                            let url = CONFIG.wait().server.url.clone();
-                            let session = Session::new(user_id, username);
-                            let encoded_session = match session.encode() {
-                                Ok(session) => session,
-                                Err(why) => {
-                                    error!("Failed to encode session: {:?}", why);
-                                    if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
-                                        error!("Failed to send register response: {:?}", why);
-                                    }
-                                    continue;
-                                }
-                            };
-                            let url = format!(
-                                "{}/register/{}/{}",
-                                url,
-                                urlencoding::encode(&session.username),
-                                encoded_session
-                            );
-                            if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
-                                error!("Failed to send CheckResponse::Register: {:?}", why);
-                            };
-                            continue;
-                        }
+        tokio::spawn(self.controller_loop());
+    }
 
-                        let wallet = match controller.storage.get_user(&user_id) {
-                            Ok(wallet) => wallet,
-                            Err(why) => {
-                                error!("Failed to get user: {:?}", why);
-                                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
-                                    error!("Failed to send CheckResponse::Error: {:?}", why);
-                                }
-                                continue;
-                            }
-                        };
-                        match controller.storage.list_gates(&guild_id) {
-                            Err(why) => {
-                                error!("Failed to list gates: {:?}", why);
-                                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
-                                    error!("Failed to send error response: {:?}", why);
-                                }
-                            }
-                            Ok(gates) => {
-                                debug!("User {} has wallet {}", user_id, wallet);
-                                let granted_roles = check_user(wallet, gates).await;
-                                debug!("Granted roles deduped: {:?}", granted_roles);
-                                if let Err(why) =
-                                    response_tx.send(CheckResponse::Grant(granted_roles))
-                                {
-                                    error!("Failed to send CheckResponse::Grant: {:?}", why);
-                                };
-                            }
-                        }
-                    }
-                    Message::Batch {
-                        guild_id,
-                        user_ids,
-                        response_tx,
-                    } => {
-                        debug!("Batch checking users {:?} in guild {}", user_ids, guild_id);
-                        let check_futures = user_ids
-                            .into_iter()
-                            .filter_map(|user_id| match controller.storage.get_user(&user_id) {
-                                Ok(wallet) => Some((user_id, wallet)),
-                                Err(why) => {
-                                    error!("Failed to get user: {:?}", why);
-                                    return None;
-                                }
-                            })
-                            .filter_map(|(user_id, wallet)| {
-                                match controller.storage.list_gates(&guild_id) {
-                                    Ok(gates) => Some(
-                                        check_user(wallet, gates)
-                                            .map(move |granted_roles| (user_id, granted_roles)),
-                                    ),
-                                    Err(why) => {
-                                        error!("Failed to list gates: {:?}", why);
-                                        None
-                                    }
-                                }
-                            });
-                        let mut set = JoinSet::new();
-                        for fut in check_futures {
-                            set.spawn(fut);
-                        }
-                        while let Some(result) = set.join_next().await {
-                            debug!("Batch checking {:?}", result);
-                            match result {
-                                Ok((user_id, roles)) => {
-                                    debug!("User {} granted roles {:?}", user_id, roles);
-                                    if let Err(why) = response_tx
-                                        .send(BatchResponse::Grant { user_id, roles })
-                                        .await
-                                    {
-                                        error!("Failed to send BatchResponse::Grant: {:?}", why);
-                                    };
-                                }
-                                Err(why) => {
-                                    error!("Failed to check user: {:?}", why);
-                                }
-                            }
-                        }
-                        debug!("Batch check complete, sending done");
-                        if let Err(why) = response_tx.send(BatchResponse::Done).await {
-                            error!("Failed to send BatchResponse::Done: {:?}", why);
-                        };
-                    }
-                    Message::Register {
-                        user_id,
-                        wallet,
-                        response_tx,
-                    } => {
-                        debug!("Registering user {} with wallet {}", user_id, wallet);
-                        if controller.storage.contains_user(&user_id) {
-                            debug!("User {} already registered", user_id);
-                            if let Err(why) = response_tx.send(RegisterResponse::AlreadyRegistered)
-                            {
-                                error!(
-                                    "Failed to send RegisterResponse::AlreadyRegistered: {:?}",
-                                    why
-                                );
-                            };
-                        } else {
-                            if let Err(why) = controller.storage.add_user(user_id, wallet) {
-                                error!("Failed to add user: {:?}", why);
-                                if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
-                                    error!("Failed to send RegisterResponse::Error: {:?}", why);
-                                };
-                            } else {
-                                if let Err(why) = response_tx.send(RegisterResponse::Success) {
-                                    error!("Failed to send RegisterResponse::Success: {:?}", why);
-                                };
-                            }
-                        }
-                    }
-                    Message::Unregister {
-                        user_id,
-                        username,
-                        response_tx,
-                    } => {
-                        debug!("Unregistering user {}", user_id);
-                        if !controller.storage.contains_user(&user_id) {
-                            if let Err(why) = response_tx.send(UnRegisterResponse::NotRegistered) {
-                                error!(
-                                    "Failed to send UnregisterResponse::NotRegistered: {:?}",
-                                    why
-                                );
-                            };
-                            continue;
-                        }
+    async fn controller_loop(mut self)
+    where
+        S: Storage + Send + 'static,
+        <S as Storage>::GateIter: Send,
+    {
+        while let Some(message) = self.message_rx.recv().await {
+            match message {
+                Message::Gate {
+                    guild_id,
+                    gate,
+                    span,
+                } => self.add_gate(guild_id, gate, span).await,
+                Message::Roles {
+                    guild_id,
+                    response,
+                    span,
+                } => self.list_roles(guild_id, response, span),
+                Message::List {
+                    guild_id,
+                    response,
+                    span,
+                } => self.list_gates(guild_id, response, span),
+                Message::Delete {
+                    guild_id,
+                    gate,
+                    span,
+                } => self.delete_gate(guild_id, gate, span),
+                Message::Check {
+                    username,
+                    user_id,
+                    guild_id,
+                    response_tx,
+                    span,
+                } => {
+                    self.check(guild_id, username, user_id, response_tx, span)
+                        .await
+                }
+                Message::Batch {
+                    guild_id,
+                    user_ids,
+                    response_tx,
+                    span,
+                } => {
+                    self.batch_check(guild_id, user_ids, response_tx, span)
+                        .await
+                }
+                Message::Register {
+                    user_id,
+                    wallet,
+                    response_tx,
+                    span,
+                } => self.register(user_id, wallet, response_tx, span).await,
+                Message::Unregister {
+                    username,
+                    user_id,
+                    response_tx,
+                    span,
+                } => self.unregister(username, user_id, response_tx, span).await,
+                Message::RemovUser { user_id, span } => self.delete_user(user_id, span).await,
+            }
+        }
+    }
 
-                        match controller.storage.get_user(&user_id) {
-                            Err(why) => {
-                                error!("Failed to get user: {:?}", why);
-                                if let Err(why) = response_tx.send(UnRegisterResponse::Error(why)) {
-                                    error!("Failed to send UnregisterResponse::Error: {:?}", why);
-                                };
-                            }
-                            Ok(_) => {
-                                let url = CONFIG.wait().server.url.clone();
-                                let session = Session::new(user_id, username);
-                                let encoded_session = match session.encode() {
-                                    Ok(encoded) => encoded,
-                                    Err(why) => {
-                                        error!("Failed to encode session: {:?}", why);
-                                        if let Err(why) =
-                                            response_tx.send(UnRegisterResponse::Error(why))
-                                        {
-                                            error!(
-                                                "Failed to send UnregisterResponse::Error: {:?}",
-                                                why
-                                            );
-                                        };
-                                        continue;
-                                    }
-                                };
-                                let url = format!(
-                                    "{}/unregister/{}/{}",
-                                    url,
-                                    urlencoding::encode(&session.username),
-                                    encoded_session,
-                                );
-                                if let Err(why) =
-                                    response_tx.send(UnRegisterResponse::Unregister(url))
-                                {
-                                    error!("Failed to send CheckResponse::Register: {:?}", why);
-                                };
-                                continue;
-                            }
-                        };
-                    }
-                    Message::RemovUser { user_id } => {
-                        debug!("Removing user {}", user_id);
-                        if let Err(why) = controller.storage.remove_user(&user_id) {
-                            error!("Failed to remove user: {:?}", why);
-                        }
-                    }
+    async fn add_gate(&mut self, guild_id: u64, gate: Gate, span: Span) {
+        let _enter = span.enter();
+        debug!(?gate, "Adding gate:");
+        if let Err(why) = self.storage.add_gate(&guild_id, gate) {
+            error!("Failed to add gate: {:?}", why);
+        }
+    }
+
+    fn list_roles(&mut self, guild_id: u64, response: oneshot::Sender<HashSet<u64>>, span: Span) {
+        let _enter = span.enter();
+        match self.storage.list_gates(&guild_id) {
+            Ok(gates) => {
+                let roles = HashSet::from_iter(gates.into_iter().map(|gate| gate.role_id));
+                if let Err(why) = response.send(roles) {
+                    error!("Failed to send roles: {:?}", why);
                 }
             }
-        });
+            Err(why) => {
+                error!("Failed to list gates: {:?}", why);
+            }
+        }
+    }
+
+    fn list_gates(&mut self, guild_id: u64, response: oneshot::Sender<Vec<Gate>>, span: Span) {
+        let _enter = span.enter();
+        debug!("Received list request for guild");
+        match self.storage.list_gates(&guild_id) {
+            Ok(gate_iter) => {
+                let gates = gate_iter.collect::<Vec<Gate>>();
+                debug!(?gates, "Sending list response");
+                if let Err(why) = response.send(gates) {
+                    error!("Failed to send list response: {:?}", why);
+                }
+            }
+            Err(why) => {
+                error!("Failed to list gates: {:?}", why);
+            }
+        }
+    }
+
+    fn delete_gate(&mut self, guild_id: u64, gate: Gate, span: Span) {
+        let _enter = span.enter();
+        debug!("Deleting gate: {:?}", gate);
+        if let Err(why) = self.storage.remove_gate(&guild_id, gate) {
+            error!("Failed to delete gate: {:?}", why);
+        }
+    }
+
+    async fn check(
+        &mut self,
+        guild_id: u64,
+        username: String,
+        user_id: u64,
+        response_tx: oneshot::Sender<CheckResponse>,
+        span: Span,
+    ) {
+        let _enter = span.enter();
+        debug!("Checking user");
+        if !self.storage.contains_user(&user_id) {
+            debug!("User not registered");
+            let url = CONFIG.wait().server.url.clone();
+            let session = match Session::new(user_id, username) {
+                Ok(session) => session,
+                Err(why) => {
+                    error!("Failed to create session: {:?}", why);
+                    if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                        error!("Failed to send register response: {:?}", why);
+                    }
+                    return;
+                }
+            };
+
+            let encoded_session = match session.encode() {
+                Ok(session) => session,
+                Err(why) => {
+                    error!("Failed to encode session: {:?}", why);
+                    if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                        error!("Failed to send register response: {:?}", why);
+                    }
+                    return;
+                }
+            };
+            let url = format!(
+                "{}/register/{}/{}",
+                url,
+                urlencoding::encode(&session.username),
+                encoded_session
+            );
+            if let Err(why) = response_tx.send(CheckResponse::Register(url)) {
+                error!("Failed to send CheckResponse::Register: {:?}", why);
+            };
+            return;
+        }
+
+        let wallet = match self.storage.get_user(&user_id) {
+            Ok(wallet) => wallet,
+            Err(why) => {
+                error!("Failed to get user: {:?}", why);
+                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                    error!("Failed to send CheckResponse::Error: {:?}", why);
+                }
+                return;
+            }
+        };
+        match self.storage.list_gates(&guild_id) {
+            Err(why) => {
+                error!("Failed to list gates: {:?}", why);
+                if let Err(why) = response_tx.send(CheckResponse::Error(why)) {
+                    error!("Failed to send error response: {:?}", why);
+                }
+            }
+            Ok(gates) => {
+                debug!("Found wallet for user");
+                let granted_roles = check_with_wallet(wallet, gates).in_current_span().await;
+                let _guard = span.enter();
+                debug!(?granted_roles, "Roles granted");
+                if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
+                    error!("Failed to send CheckResponse::Grant: {:?}", why);
+                };
+            }
+        }
+    }
+
+    async fn batch_check(
+        &mut self,
+        guild_id: u64,
+        user_ids: Vec<u64>,
+        response_tx: mpsc::Sender<BatchResponse>,
+        span: Span,
+    ) where
+        S: Storage + Send + 'static,
+        <S as Storage>::GateIter: Send,
+    {
+        let _enter = span.enter();
+        debug!(?user_ids, "Batch checking");
+        let check_futures = user_ids
+            .into_iter()
+            .filter(|user_id| self.storage.contains_user(user_id))
+            .filter_map(|user_id| match self.storage.get_user(&user_id) {
+                Ok(wallet) => Some((user_id, wallet)),
+                Err(why) => {
+                    error!("Failed to get user: {:?}", why);
+                    return None;
+                }
+            })
+            .filter_map(
+                |(user_id, wallet)| match self.storage.list_gates(&guild_id) {
+                    Ok(gates) => Some(
+                        check_with_wallet(wallet, gates)
+                            .map(move |granted_roles| (user_id, granted_roles)),
+                    ),
+                    Err(why) => {
+                        error!("Failed to list gates: {:?}", why);
+                        None
+                    }
+                },
+            );
+        let mut set = JoinSet::new();
+        for fut in check_futures {
+            set.spawn(fut.in_current_span());
+        }
+        while let Some(result) = set.join_next().in_current_span().await {
+            let _enter = span.enter();
+            match result {
+                Ok((user_id, roles)) => {
+                    debug!(user_id, ?roles, "Batch result");
+                    if let Err(why) = response_tx
+                        .send(BatchResponse::Grant { user_id, roles })
+                        .in_current_span()
+                        .await
+                    {
+                        error!("Failed to send BatchResponse::Grant: {:?}", why);
+                    };
+                }
+                Err(why) => {
+                    error!("Failed to check user: {:?}", why);
+                }
+            }
+        }
+        debug!("Batch check complete, sending done");
+        if let Err(why) = response_tx
+            .send(BatchResponse::Done)
+            .in_current_span()
+            .await
+        {
+            error!("Failed to send BatchResponse::Done: {:?}", why);
+        };
+    }
+
+    async fn register(
+        &mut self,
+        user_id: u64,
+        wallet: SecretString,
+        response_tx: oneshot::Sender<RegisterResponse>,
+        span: Span,
+    ) {
+        let _enter = span.enter();
+        debug!("Registering user {} with wallet {:?}", user_id, wallet);
+        if self.storage.contains_user(&user_id) {
+            debug!("User {} already registered", user_id);
+            if let Err(why) = response_tx.send(RegisterResponse::AlreadyRegistered) {
+                error!(
+                    "Failed to send RegisterResponse::AlreadyRegistered: {:?}",
+                    why
+                );
+            };
+        } else {
+            if let Err(why) = self.storage.add_user(user_id, wallet) {
+                error!("Failed to add user: {:?}", why);
+                if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
+                    error!("Failed to send RegisterResponse::Error: {:?}", why);
+                };
+            } else {
+                if let Err(why) = response_tx.send(RegisterResponse::Success) {
+                    error!("Failed to send RegisterResponse::Success: {:?}", why);
+                };
+            }
+        }
+    }
+
+    async fn unregister(
+        &mut self,
+        username: String,
+        user_id: u64,
+        response_tx: oneshot::Sender<UnRegisterResponse>,
+        span: Span,
+    ) {
+        let _enter = span.enter();
+        debug!("Unregistering user");
+        if !self.storage.contains_user(&user_id) {
+            if let Err(why) = response_tx.send(UnRegisterResponse::NotRegistered) {
+                error!(
+                    "Failed to send UnregisterResponse::NotRegistered: {:?}",
+                    why
+                );
+            };
+            return;
+        }
+        let url = CONFIG.wait().server.url.clone();
+        let session = match Session::new(user_id, username) {
+            Ok(session) => session,
+            Err(why) => {
+                error!("Failed to create session: {:?}", why);
+                if let Err(why) = response_tx.send(UnRegisterResponse::Error(why)) {
+                    error!("Failed to send UnregisterResponse::Error: {:?}", why);
+                };
+                return;
+            }
+        };
+        let encoded_session = match session.encode() {
+            Ok(encoded) => encoded,
+            Err(why) => {
+                error!("Failed to encode session: {:?}", why);
+                if let Err(why) = response_tx.send(UnRegisterResponse::Error(why)) {
+                    error!("Failed to send UnregisterResponse::Error: {:?}", why);
+                };
+                return;
+            }
+        };
+        debug!(?session, ?encoded_session, "Created session");
+        let url = format!(
+            "{}/unregister/{}/{}",
+            url,
+            urlencoding::encode(&session.username),
+            encoded_session,
+        );
+        if let Err(why) = response_tx.send(UnRegisterResponse::Unregister(url)) {
+            error!("Failed to send CheckResponse::Register: {:?}", why);
+        };
+    }
+
+    async fn delete_user(&mut self, user_id: u64, span: Span) {
+        let _enter = span.enter();
+        debug!("Removing user");
+        if let Err(why) = self.storage.remove_user(&user_id) {
+            error!("Failed to remove user: {:?}", why);
+        }
     }
 }
 
-pub async fn check_user(wallet: String, gates: impl Iterator<Item = Gate>) -> Vec<u64> {
+#[instrument(level = "debug", skip(wallet, gates))]
+pub async fn check_with_wallet(
+    wallet: SecretString,
+    gates: impl Iterator<Item = Gate>,
+) -> Vec<u64> {
+    debug!("Checking with the user's wallet");
+    let wallet = match H160::from_str(&wallet.expose_secret()) {
+        Ok(wallet) => wallet,
+        Err(why) => {
+            error!("Invalid wallet address: {:?}:{:?}", wallet, why);
+            return Vec::new();
+        }
+    };
     let wallet_arc = Arc::new(wallet);
     let mut set = JoinSet::new();
     for gate in gates {
+        debug!(
+            name = gate.name(),
+            gate.role_id,
+            identifier = gate.identifier(),
+            "Checking gate"
+        );
         let wallet = wallet_arc.clone();
-        let wallet = if let Ok(wallet) = H160::from_str(&wallet) {
-            wallet
-        } else {
-            error!("Invalid wallet address: {} ", wallet);
-            continue;
-        };
-        set.spawn(gate.check(wallet));
+        set.spawn(gate.check_condition(*wallet).in_current_span());
     }
     let mut granted_roles = Vec::new();
-    while let Some(reputation_res) = set.join_next().await {
-        if let Ok(Some(role_id)) = reputation_res {
-            granted_roles.push(role_id);
+    while let Some(check_result) = set.join_next().in_current_span().await {
+        match check_result {
+            Ok(result) => match result {
+                Some(role_id) => granted_roles.push(role_id),
+                None => debug!("Gate did not grant a role"),
+            },
+            Err(why) => {
+                error!("Failed to check gate: {:?}", why);
+            }
         }
     }
-    debug!("Granted roles: {:?}", granted_roles);
     granted_roles.sort();
     granted_roles.dedup();
     granted_roles
@@ -451,16 +567,13 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(user_id: u64, username: String) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system timestamp")
-            .as_secs();
-        Session {
+    pub fn new(user_id: u64, username: String) -> Result<Self> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        Ok(Session {
             user_id,
             username,
             timestamp,
-        }
+        })
     }
 
     pub fn expired(&self) -> bool {
@@ -492,9 +605,6 @@ impl Session {
 impl FromStr for Session {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
-        // let user_id: u64;
-        // let timestamp;
-
         let key_bytes = SESSION_KEY.wait();
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
@@ -545,7 +655,7 @@ mod tests {
     #[tokio::test]
     async fn test_session() {
         setup().await;
-        let session = Session::new(123, "test".to_string());
+        let session = Session::new(123, "test".to_string()).unwrap();
         let encoded = session.encode().unwrap();
         let decoded = Session::from_str(&encoded).unwrap();
         assert_eq!(session.user_id, decoded.user_id);

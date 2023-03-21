@@ -20,7 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn, Instrument};
 
 /// this must be smaller than 1e76 or so, to not overflow the later U512
 /// multiplications
@@ -87,7 +87,9 @@ impl GatingCondition for ReputationGate {
         });
         options
     }
+    #[instrument(level = "info")]
     async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+        debug!("Creating reputation gate from options");
         if options.len() != 3 {
             bail!("Need exactly 3 options");
         }
@@ -118,15 +120,17 @@ impl GatingCondition for ReputationGate {
         if reputation_percentage > 100.0 {
             bail!("Reputation must be 100 or less")
         }
-        if reputation_percentage < 0.0 {
-            bail!("Reputation must be 0 or more")
+        if reputation_percentage <= 0.0 {
+            bail!("Reputation must be more than 0")
         }
         let reputation_threshold_scaled =
             u256_from_f64_saturating(reputation_percentage * PRECISION_FACTOR);
 
         let colony_name = get_colony_name(colony_address).await?;
+        debug!(?colony_name, "Got colony name:");
 
         let chain_id = U256::from(100);
+        debug!("Done creating reputation gate from options");
 
         Ok(Box::new(ReputationGate {
             chain_id,
@@ -137,13 +141,16 @@ impl GatingCondition for ReputationGate {
         }))
     }
 
+    #[instrument(name = "reputation_condition", skip(wallet_address))]
     async fn check(&self, wallet_address: H160) -> bool {
+        debug!("Checking reputation gate");
         check_reputation(
             self.reputation_threshold_scaled,
             wallet_address,
             self.colony_address,
             self.colony_domain,
         )
+        .in_current_span()
         .await
         .unwrap_or_else(|why| {
             error!("Error checking reputation: {}", why);
@@ -185,33 +192,34 @@ impl GatingCondition for ReputationGate {
             },
         ]
     }
+
+    fn instance_name(&self) -> &'static str {
+        Self::name()
+    }
 }
 
 /// This is used to gather the fraction of total reputation a wallet has in
 /// a domain in a colony
+#[instrument(level = "debug", skip(wallet))]
 async fn check_reputation(
     reputation_percentage: U256,
     wallet: H160,
     colony: H160,
     domain: u64,
 ) -> Result<bool> {
-    debug!(
-        "Checking reputation for wallet {:?} in colony {:?} domain {}",
-        wallet, colony, domain
-    );
+    debug!("Checking reputation");
     let mut interval = tokio::time::interval(Duration::from_millis(1));
     loop {
-        interval.tick().await;
+        trace!("Waiting for rate limiter");
+        interval.tick().in_current_span().await;
         {
-            let mut guard = COLONY_CACHE.lock().await;
+            trace!("Waiting for cache lock");
+            let mut guard = COLONY_CACHE.lock().in_current_span().await;
             // we only check the user for a cache hit, this should imply a
             // cache hit for the base reputation as well, edge cases should
             // be irrelevant
-            if let Some(_result) = guard.cache_get(&(colony, wallet, domain)) {
-                debug!(
-                    "Cache hit for colony {} wallet {} domain {}, can return now",
-                    colony, wallet, domain
-                );
+            if let Some(_) = guard.cache_get(&(colony, wallet, domain)) {
+                debug!("Cache hit, can return now");
                 break;
             }
         }
@@ -219,37 +227,35 @@ async fn check_reputation(
         // reputation and the user reputation separately
         match RATE_LIMITER.check_n(nonzero!(2u32)) {
             Ok(_) => {
-                debug!(
-                    "Got pass from rate limiter for colony {} wallet {} domain {}, can return now",
-                    colony, wallet, domain
-                );
                 break;
             }
             Err(_) => trace!("Rate limit reached, waiting"),
         }
     }
-
+    debug!("Passed rate limiting");
     let base_reputation_fut = tokio::spawn(async move {
         let colony_address = colony.clone();
         let zero_address = colony_rs::Address::zero();
-        get_reputation_in_domain_cached(&colony_address, &zero_address, domain).await
+        get_reputation_in_domain_cached(&colony_address, &zero_address, domain)
+            .in_current_span()
+            .await
     });
-    let user_reputation_fut =
-        tokio::spawn(
-            async move { get_reputation_in_domain_cached(&colony, &wallet, domain).await },
-        );
-
+    let user_reputation_fut = tokio::spawn(async move {
+        get_reputation_in_domain_cached(&colony, &wallet, domain)
+            .in_current_span()
+            .await
+    });
     let (base_result, user_result) = tokio::join!(base_reputation_fut, user_reputation_fut);
-    let base_reputation_str = match base_result.expect("Panicked in base reputation") {
+    let base_reputation_str = match base_result? {
         Ok(reputation) => reputation,
         Err(why) => {
             warn!("Failed to get base reputation: {:?}", why);
-            bail!("Failed to get base reputation");
+            bail!("Failed to get base reputation: {:?}", why);
         }
     };
 
-    debug!("Base reputation: {}", base_reputation_str);
-    let user_reputation_str = match user_result.expect("Panicked in user reputation") {
+    debug!(reputation = base_reputation_str, "Got base reputation");
+    let user_reputation_str = match user_result? {
         Ok(reputation) => reputation,
         Err(why) => {
             info!("Failed to get user reputation: {:?}", why);
@@ -282,6 +288,7 @@ async fn get_reputation_in_domain_cached(
     }
 }
 
+#[instrument(level = "debug")]
 fn calculate_reputation_percentage(
     reputation_threshold_scaled: U256,
     base_reputation_str: &str,
@@ -294,9 +301,16 @@ fn calculate_reputation_percentage(
     // threshold% * PRECISION_FACTOR <= 100% * PRECISION_FACTOR * user_reputation / base_reputation
     // => threshold * PRECISION_FACTOR * base_reputation <= 100 * PRECISION_FACTOR * user_reputation
     //
+    debug!("Calculating reputation percentage",);
     let base_reputation = U512::from_dec_str(&base_reputation_str)?;
     let user_reputation = U512::from_dec_str(&user_reputation_str)?;
     let reputation_threshold_scaled = U512::from(reputation_threshold_scaled);
+    debug!(
+        ?base_reputation,
+        ?user_reputation,
+        ?reputation_threshold_scaled,
+        "Converted reputation values"
+    );
     let left_side = reputation_threshold_scaled
         .checked_mul(base_reputation)
         .ok_or(anyhow!(
@@ -307,5 +321,6 @@ fn calculate_reputation_percentage(
         .ok_or(anyhow!(
             "Failed to calculate reputation percentage right side, overflow"
         ))?;
+    debug!(?left_side, ?right_side, "Calculated reputation percentage");
     Ok(left_side <= right_side)
 }

@@ -26,7 +26,7 @@ static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
 
 /// `Cli` is the main struct for the cli parser, it contains the gloabl flags
 /// and the `Commands` enum with all subcommands
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[clap(
     name = crate_name!(),
     author = crate_authors!("\n"),
@@ -35,7 +35,6 @@ static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
     long_about = LONG_DESCRIPTION.as_str(),
     arg_required_else_help = false
 )]
-
 pub struct Cli {
     /// The main configuration params live here and can be set with command line
     /// flags
@@ -47,7 +46,7 @@ pub struct Cli {
 }
 
 /// The commands enum contains all sub commands and their respective arguments
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum Commands {
     /// Generates completion scripts for the specified shell
@@ -77,7 +76,7 @@ pub enum Commands {
 }
 
 /// Represents the config sub command, used to print the current config or get a template
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum ConfigCmd {
     /// Print the configuration sources and merged config
@@ -87,7 +86,7 @@ pub enum ConfigCmd {
 }
 
 /// represents the discord sub command, used to register and delete slash commands
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum DiscordCmd {
     /// Register the global slash commands
@@ -100,7 +99,7 @@ pub enum DiscordCmd {
 
 /// represents the discord sub command, used to register slash commands in
 /// a specific guild or globally
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum RegisterCmd {
     /// Register the global slash commands
@@ -115,7 +114,7 @@ pub enum RegisterCmd {
 
 /// represents the discord sub command, used to delete slash commands in
 /// a specific guild or globally
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum DeleteCmd {
     /// Register the global slash commands
@@ -131,10 +130,12 @@ pub enum DeleteCmd {
 /// Represents the storage sub command, used to interact with the stored data
 /// and encryption. Commands that use the data on disk, only work if the
 /// bot is not running, otherwise the data is locked.
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum StorageCmd {
     /// Generates a new key than can be used for encryption at rest
+    /// Be careful, these commands are able to alter data in the storage_type
+    /// and also expose secretes to the console, especially the user commands
     Generate,
     /// List or delete discord guilds in the db
     #[clap(subcommand)]
@@ -148,7 +149,7 @@ pub enum StorageCmd {
 }
 
 /// Represents the user sub command, used to interact with the user storage
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum GuildCmd {
     /// List all guilds
@@ -169,10 +170,11 @@ pub enum GuildCmd {
 }
 
 /// Represents the user sub command, used to interact with the user storage
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum UserCmd {
-    /// List all users
+    /// List all users with their wallet addresses in plain text, this spills
+    /// sensitive data to the console, so be careful
     List {
         /// Starting index of the listed entries
         #[clap(value_hint = ValueHint::Other, default_value = "0")]
@@ -199,7 +201,7 @@ pub enum UserCmd {
 }
 
 /// Represents the gates sub command, used to interact with the gates storage
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[clap()]
 pub enum GateCmd {
     /// List all gates

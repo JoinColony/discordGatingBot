@@ -7,10 +7,12 @@ use crate::controller::{Message, RegisterResponse, Session, CONTROLLER_CHANNEL};
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use colony_rs::Signature;
 use sailfish::TemplateOnce;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::str::FromStr;
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
+use tracing_actix_web::TracingLogger;
 use urlencoding;
 
 static SIGN_SCRIPT: &'static str = include_str!("../../frontend/dist/index.js");
@@ -23,9 +25,10 @@ const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your \
 pub async fn start() -> std::io::Result<()> {
     let host = CONFIG.wait().server.host.clone();
     let port = CONFIG.wait().server.port;
-    info!("Starting server on {}:{}", host, port);
+    info!("Starting server on {}:{}", &host, port);
     HttpServer::new(|| {
         App::new()
+            .wrap(TracingLogger::default())
             .service(index)
             .service(favicon)
             .service(script)
@@ -39,6 +42,7 @@ pub async fn start() -> std::io::Result<()> {
     .await
 }
 
+#[instrument]
 #[get("/")]
 async fn index() -> impl Responder {
     debug!("Received index request");
@@ -52,6 +56,7 @@ async fn index() -> impl Responder {
     }
 }
 
+#[instrument]
 #[get("/index.js")]
 async fn script() -> impl Responder {
     debug!("Received script request");
@@ -60,6 +65,7 @@ async fn script() -> impl Responder {
         .body(SIGN_SCRIPT)
 }
 
+#[instrument]
 #[get("/favicon.ico")]
 async fn favicon() -> impl Responder {
     debug!("Received favicon request");
@@ -68,6 +74,7 @@ async fn favicon() -> impl Responder {
         .body(FAVICON)
 }
 
+#[instrument]
 #[get("/register/{username}/{session}")]
 async fn registration_form(path: web::Path<(String, String)>) -> impl Responder {
     debug!("Received registration form request for session {}", path.1);
@@ -75,7 +82,7 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
         Err(_) => {
-            warn!("Invalid session {}", session_str);
+            warn!("Invalid session");
             let invalid_session = Skeleton::invalid_session();
             match invalid_session.render_once() {
                 Ok(html) => {
@@ -91,7 +98,7 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
         }
     };
     if session.expired() {
-        debug!("Session {} expired", session_str);
+        debug!(?session, "Session expired");
         let expired_session = Skeleton::expired_session();
         match expired_session.render_once() {
             Ok(html) => {
@@ -108,13 +115,24 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
     let username = match urlencoding::decode(&username_url) {
         Ok(username) => username,
         Err(_) => {
-            warn!("Invalid username {}", username_url);
-            return HttpResponse::BadRequest().body("Decoding error");
+            warn!(?username_url, "Invalid username");
+            let invalid_username = Skeleton::invalid_username();
+            match invalid_username.render_once() {
+                Ok(html) => {
+                    return HttpResponse::BadRequest()
+                        .content_type("text/html")
+                        .body(html)
+                }
+                Err(why) => {
+                    error!("Error rendering invalid username: {}", why);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
         }
     };
 
     if username != session.username {
-        error!(
+        warn!(
             "Invalid username for session {} != {}",
             username, session.username
         );
@@ -142,11 +160,9 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
 }
 
 #[post("/register/{username}/{session}")]
+#[instrument]
 async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) -> impl Responder {
-    debug!(
-        "Received registration request for session: {}, payload: {}",
-        path.1, data.signature
-    );
+    debug!("Received registration request");
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -181,11 +197,23 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
             }
         }
     }
+
     let username = match urlencoding::decode(&username_url) {
         Ok(username) => username,
         Err(_) => {
             debug!("Failed to decode username {}", username_url);
-            return HttpResponse::BadRequest().body("Decoding username failed");
+            let invalid_username = Skeleton::invalid_username();
+            match invalid_username.render_once() {
+                Ok(html) => {
+                    return HttpResponse::BadRequest()
+                        .content_type("text/html")
+                        .body(html)
+                }
+                Err(why) => {
+                    error!("Error rendering invalid username: {}", why);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
         }
     };
 
@@ -208,10 +236,10 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
         }
     }
 
-    let signature = match Signature::from_str(&data.signature) {
+    let signature = match Signature::from_str(&data.signature.expose_secret()) {
         Ok(signature) => signature,
         Err(_) => {
-            warn!("Invalid signature {}", data.signature);
+            warn!("Invalid signature");
             let invalid_signature = Skeleton::invalid_signature();
             match invalid_signature.render_once() {
                 Ok(html) => {
@@ -230,10 +258,10 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
     let message = REGISTRATION_MESSAGE
         .replace("{username}", &session.username)
         .replace("{session}", &session_str);
-    let wallet = match colony_rs::Address::from_str(&data.address) {
+    let wallet = match colony_rs::Address::from_str(&data.address.expose_secret()) {
         Ok(wallet) => wallet,
         Err(_) => {
-            warn!("Invalid wallet {}", data.address);
+            warn!("Invalid wallet");
             let invalid_wallet = Skeleton::invalid_address();
             match invalid_wallet.render_once() {
                 Ok(html) => {
@@ -250,10 +278,7 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
     };
 
     if signature.verify(message.clone(), wallet).is_err() {
-        warn!(
-            "Invalid signature {} for message {}",
-            data.signature, message
-        );
+        warn!("Invalid signature message");
         let invalid_signature = Skeleton::invalid_signature();
         match invalid_signature.render_once() {
             Ok(html) => {
@@ -270,10 +295,12 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
 
     let (tx, rx) = oneshot::channel();
 
+    let span = debug_span!("server_register", username = %username, wallet = %wallet);
     let message = Message::Register {
         user_id: session.user_id,
-        wallet: format!("{:?}", wallet),
+        wallet: data.address.clone(),
         response_tx: tx,
+        span,
     };
 
     if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
@@ -343,13 +370,14 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
 }
 
 #[get("/unregister/{username}/{session}")]
+#[instrument]
 async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received unregister form request for session {}", path.1);
+    debug!("Received unregister request");
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
         Err(_) => {
-            warn!("Invalid session {}", session_str);
+            warn!("Invalid session");
             let invalid_session = Skeleton::invalid_session();
             match invalid_session.render_once() {
                 Ok(html) => {
@@ -365,7 +393,7 @@ async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responde
         }
     };
     if session.expired() {
-        debug!("Session {} expired", session_str);
+        debug!(?session, "Session expired");
         let expired_session = Skeleton::expired_session();
         match expired_session.render_once() {
             Ok(html) => {
@@ -381,15 +409,40 @@ async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responde
     }
     let username = match urlencoding::decode(&username_url) {
         Ok(username) => username,
-        Err(_) => return HttpResponse::BadRequest().body("Decoding error"),
+        Err(_) => {
+            warn!("Could not decode username");
+            let invalid_username = Skeleton::invalid_username();
+            match invalid_username.render_once() {
+                Ok(html) => {
+                    return HttpResponse::BadRequest()
+                        .content_type("text/html")
+                        .body(html)
+                }
+                Err(why) => {
+                    error!("Error rendering invalid username: {}", why);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
+        }
     };
 
     if username != session.username {
-        error!(
+        warn!(
             "Invalid username for session {} != {}",
             username, session.username
         );
-        return HttpResponse::BadRequest().body("Invalid Username");
+        let invalid_username = Skeleton::invalid_username();
+        match invalid_username.render_once() {
+            Ok(html) => {
+                return HttpResponse::BadRequest()
+                    .content_type("text/html")
+                    .body(html)
+            }
+            Err(why) => {
+                error!("Error rendering invalid username: {}", why);
+                return HttpResponse::InternalServerError().finish();
+            }
+        }
     }
     let unregistration_form = Skeleton::unregistration_form();
     match unregistration_form.render_once() {
@@ -402,8 +455,9 @@ async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responde
 }
 
 #[post("/unregister/{username}/{session}")]
+#[instrument]
 async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received unregistration request for session: {}", path.1);
+    debug!("Received acknowledged unregistration request");
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -475,9 +529,10 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
             }
         }
     }
-
+    let span = debug_span!("unregister", username = %username, user_id = %session.user_id);
     let message = Message::RemovUser {
         user_id: session.user_id,
+        span,
     };
 
     if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
@@ -495,10 +550,10 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct JsonData {
-    signature: String,
-    address: String,
+    signature: SecretString,
+    address: SecretString,
 }
 
 #[derive(TemplateOnce)]
@@ -527,7 +582,7 @@ impl Skeleton {
         Skeleton {
             index_script: None,
             paragraph_text: r#"
-This is the <a href="https://colony.io">colony</a> discord bot. You can invite the bot to your discord server and then use the <b>/check</b> and <b>/gate</b> commands there. After the bot joined, you must reorder the created bot role in the role hierarchy to be above all roles the bot should manage.
+This is the <a href="https://colony.io">colony</a> discord bot. You can invite the bot to your discord server and then use the <b>/get in</b> and <b>/gate</b> commands there. After the bot joined, you must reorder the created bot role in the role hierarchy to be above all roles the bot should manage.
             "#.to_string(),
             button: Some(Button {
                 text: "Invite Bot".to_string(),
@@ -623,7 +678,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
     fn unregistration_form() -> Self {
         Skeleton {
             index_script: None,
-            paragraph_text: "Welcome to the unregistration to the colony gating bot.\
+            paragraph_text: "Welcome to the unregistration from the colony gating bot.\
             Here you can unregister your wallet address <br />"
                 .to_string(),
             button: None,
@@ -639,7 +694,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
         Skeleton {
             index_script: None,
             paragraph_text: "Deregistration successful! Hope to see you again \
-            soon! Use <b>/check</b> to register again."
+            soon! Use <b>/get in</b> to register again."
                 .to_string(),
             button: None,
             form_input: None,

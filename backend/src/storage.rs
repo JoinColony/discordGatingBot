@@ -12,6 +12,7 @@ use chacha20poly1305::{
 };
 use hex;
 use secrecy::ExposeSecret;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ use tracing::{debug, error};
 /// for a storage backend
 pub trait Storage {
     type GateIter: Iterator<Item = Gate>;
-    type UserIter: Iterator<Item = (u64, String)>;
+    type UserIter: Iterator<Item = (u64, SecretString)>;
     type GuildIter: Iterator<Item = u64>;
     fn new() -> Self;
     fn list_guilds(&self) -> Self::GuildIter;
@@ -29,9 +30,9 @@ pub trait Storage {
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter>;
     fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
-    fn get_user(&self, user_id: &u64) -> Result<String>;
+    fn get_user(&self, user_id: &u64) -> Result<SecretString>;
     fn list_users(&self) -> Result<Self::UserIter>;
-    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()>;
+    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()>;
     fn contains_user(&self, user_id: &u64) -> bool;
     fn remove_user(&mut self, user_id: &u64) -> Result<()>;
 }
@@ -40,12 +41,12 @@ pub trait Storage {
 /// should only be used for testing
 pub struct InMemoryStorage {
     gates: HashMap<u64, Vec<Gate>>,
-    users: HashMap<u64, String>,
+    users: HashMap<u64, SecretString>,
 }
 
 impl Storage for InMemoryStorage {
     type GateIter = std::vec::IntoIter<Gate>;
-    type UserIter = std::collections::hash_map::IntoIter<u64, String>;
+    type UserIter = std::collections::hash_map::IntoIter<u64, SecretString>;
     type GuildIter = std::collections::hash_map::IntoKeys<u64, Vec<Gate>>;
 
     fn new() -> Self {
@@ -91,7 +92,7 @@ impl Storage for InMemoryStorage {
         }
     }
 
-    fn get_user(&self, user_id: &u64) -> Result<String> {
+    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
         self.users
             .get(user_id)
             .ok_or(anyhow!("User {} not found", user_id))
@@ -101,7 +102,7 @@ impl Storage for InMemoryStorage {
     fn list_users(&self) -> Result<Self::UserIter> {
         Ok(self.users.clone().into_iter())
     }
-    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
+    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
         self.users.insert(user_id, wallet);
         Ok(())
     }
@@ -128,7 +129,7 @@ impl Storage for SledUnencryptedStorage {
         std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
     type UserIter = std::iter::FilterMap<
         sled::Iter,
-        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, String)>,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, SecretString)>,
     >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
@@ -188,7 +189,7 @@ impl Storage for SledUnencryptedStorage {
         }))
     }
 
-    fn get_user(&self, user_id: &u64) -> Result<String> {
+    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
             None => bail!("User {} not found", user_id),
@@ -201,7 +202,7 @@ impl Storage for SledUnencryptedStorage {
             if let Ok((user_id, wallet)) = result {
                 if let Ok(user_id) = user_id.to_vec().try_into() {
                     let user_id = u64::from_be_bytes(user_id);
-                    if let Ok(wallet) = bincode::deserialize::<String>(&wallet) {
+                    if let Ok(wallet) = bincode::deserialize::<SecretString>(&wallet) {
                         Some((user_id, wallet))
                     } else {
                         error!("Failed to deserialize user wallet");
@@ -218,9 +219,11 @@ impl Storage for SledUnencryptedStorage {
         }))
     }
 
-    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
-        self.db
-            .insert(user_id.to_be_bytes(), bincode::serialize(&wallet)?)?;
+    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+        self.db.insert(
+            user_id.to_be_bytes(),
+            bincode::serialize(&wallet.expose_secret())?,
+        )?;
         Ok(())
     }
 
@@ -245,7 +248,7 @@ impl Storage for SledEncryptedStorage {
         std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
     type UserIter = std::iter::FilterMap<
         sled::Iter,
-        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, String)>,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, SecretString)>,
     >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
@@ -303,7 +306,7 @@ impl Storage for SledEncryptedStorage {
         }))
     }
 
-    fn get_user(&self, user_id: &u64) -> Result<String> {
+    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
             None => bail!("User {} not found", user_id),
@@ -340,7 +343,7 @@ impl Storage for SledEncryptedStorage {
         }))
     }
 
-    fn add_user(&mut self, user_id: u64, wallet: String) -> Result<()> {
+    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
         let encrypted = EncryptionWrapper::new(wallet)?;
         self.db
             .insert(user_id.to_be_bytes(), bincode::serialize(&encrypted)?)?;
@@ -366,14 +369,14 @@ struct EncryptionWrapper {
 }
 
 impl EncryptionWrapper {
-    fn new(plaintext: String) -> Result<Self> {
+    fn new(plaintext: SecretString) -> Result<Self> {
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         let ciphertext = cipher
-            .encrypt(&nonce, plaintext.as_bytes())
+            .encrypt(&nonce, plaintext.expose_secret().as_bytes())
             .map_err(|e| anyhow!("{e}"))?;
 
         Ok(Self {
@@ -382,7 +385,7 @@ impl EncryptionWrapper {
         })
     }
 
-    fn decrypt(&self) -> Result<String> {
+    fn decrypt(&self) -> Result<SecretString> {
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
@@ -391,6 +394,6 @@ impl EncryptionWrapper {
         let plaintext = cipher
             .decrypt(&nonce, self.ciphertext.as_ref())
             .map_err(|e| anyhow!("{e}"))?;
-        Ok(String::from_utf8(plaintext)?)
+        Ok(String::from_utf8(plaintext)?.into())
     }
 }

@@ -17,9 +17,10 @@ use chacha20poly1305::{
 };
 use colony_rs::U256;
 use colony_rs::{u256_from_f64_saturating, H160};
+use secrecy::ExposeSecret;
 use std::str::FromStr;
 use tokio;
-use tracing::{error, info};
+use tracing::info;
 #[cfg(feature = "completion")]
 use {clap::CommandFactory, clap_complete::generate, std::io};
 
@@ -101,7 +102,7 @@ pub fn execute(cli: &Cli) {
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
-                            println!("{}: {}", user.0, user.1);
+                            println!("{}: {}", user.0, user.1.expose_secret());
                         });
                 }
                 StorageType::Encrypted => {
@@ -112,7 +113,7 @@ pub fn execute(cli: &Cli) {
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
-                            println!("{}: {}", user.0, user.1);
+                            println!("{}: {}", user.0, user.1.expose_secret());
                         });
                 }
                 StorageType::InMemory => {
@@ -129,13 +130,13 @@ pub fn execute(cli: &Cli) {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
                     storage
-                        .add_user(*user_id, wallet_address.to_string())
+                        .add_user(*user_id, wallet_address.to_string().into())
                         .expect("Failed to add user");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
                     storage
-                        .add_user(*user_id, wallet_address.to_string())
+                        .add_user(*user_id, wallet_address.to_string().into())
                         .expect("Failed to add user");
                 }
                 StorageType::InMemory => {
@@ -343,7 +344,7 @@ pub fn execute(cli: &Cli) {
                 .storage
                 .list_gates(&guild_id)
                 .expect("Failed to list gates");
-            let roles = rt.block_on(controller::check_user(wallet, gates));
+            let roles = rt.block_on(controller::check_with_wallet(wallet, gates));
             println!("Roles: {:?}", roles);
         }
 
@@ -358,12 +359,14 @@ pub fn execute(cli: &Cli) {
             let message_tx = controller.message_tx.clone();
             rt.spawn(controller.spawn());
             let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(100);
+            let span = tracing::info_span!("Batch");
             rt.spawn(async move {
                 message_tx
                     .send(Message::Batch {
                         guild_id,
                         user_ids,
                         response_tx,
+                        span,
                     })
                     .await
                     .expect("Failed to send batch message to controller");

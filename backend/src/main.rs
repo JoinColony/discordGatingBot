@@ -32,6 +32,13 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 #![warn(rustdoc::missing_doc_code_examples)]
+#![warn(rustdoc::broken_intra_doc_links)]
+#![warn(rustdoc::private_intra_doc_links)]
+#![warn(rustdoc::private_doc_tests)]
+#![warn(rustdoc::invalid_codeblock_attributes)]
+#![warn(rustdoc::invalid_html_tags)]
+#![warn(rustdoc::invalid_rust_codeblocks)]
+#![warn(rustdoc::invalid_html_tags)]
 
 mod cli;
 mod command;
@@ -52,7 +59,7 @@ use {clap::CommandFactory, clap_complete::generate, std::io};
 
 /// The main entry point of the cli application. It sets up the logging and
 /// configuration and then executes the command via the command module.
-#[instrument(level = "trace")]
+#[instrument]
 fn main() {
     #[cfg(feature = "profiling")]
     let guard = pprof::ProfilerGuardBuilder::default()
