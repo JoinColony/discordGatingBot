@@ -115,7 +115,7 @@ fn get_config_hirarchy(
             (3, _) => Some(LogLevel::Debug),
             _ => Some(LogLevel::Trace),
         },
-        precision: raw_cli_cfg.precision,
+        session_expiration: raw_cli_cfg.session_expiration,
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
             invite_url: raw_cli_cfg.discord.invite_url.clone(),
@@ -166,9 +166,9 @@ pub struct GlobalConfig {
     /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
     #[config(env = "CLNY_VERBOSITY", default = "Error")]
     pub verbosity: LogLevel,
-    /// The precision of the reputation percentage before it's been cut off
-    #[config(env = "CLNY_REPUTATION_PRECISION", default = 2)]
-    pub precision: u8,
+    /// The time it takes for a session to expire in seconds
+    #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
+    pub session_expiration: u64,
     /// The discord configuration
     #[config(nested)]
     pub discord: DiscordConfig,

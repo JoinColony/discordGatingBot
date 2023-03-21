@@ -270,9 +270,9 @@ pub struct CliConfig {
     #[clap(long, short, global(true), conflicts_with = "verbose")]
     /// Supress all logging
     pub quiet: bool,
-    /// The precision of the reputation percentage before it's been cut off
+    /// The time it takes for a session to expire in seconds
     #[clap(long, short)]
-    pub precision: Option<u8>,
+    pub session_expiration: Option<u64>,
     #[clap(flatten)]
     pub discord: CliDiscordConfig,
     #[clap(flatten)]
@@ -300,13 +300,13 @@ pub struct CliDiscordConfig {
 #[clap()]
 pub struct CliServerConfig {
     /// The address to listen on
-    #[clap(short)]
+    #[clap(short = 'H', long)]
     pub host: Option<String>,
     /// The base url under which the server is reachable
     #[clap(short, long)]
     pub url: Option<String>,
     /// The port to listen on
-    #[clap(long)]
+    #[clap(short = 'P', long)]
     pub port: Option<u16>,
 }
 
@@ -319,7 +319,7 @@ pub struct CliStorageConfig {
     #[clap(short, long)]
     pub directory: Option<PathBuf>,
     /// How to store data, on disk or in memory
-    #[clap(short, long)]
+    #[clap(short = 'S', long)]
     pub storage_type: Option<StorageType>,
     /// The encryption_key used to encrypt the stored data
     #[clap(short, long)]

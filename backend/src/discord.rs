@@ -2,7 +2,7 @@
 //!
 use crate::config::CONFIG;
 use crate::controller::{
-    self, BatchResponse, CheckResponse, UnRegisterResponse, CONTROLLER_CHANNEL,
+    self, BatchResponse, CheckResponse, RemoveUserResponse, UnRegisterResponse, CONTROLLER_CHANNEL,
 };
 use crate::gate::{Gate, GateOptionType, GateOptionValue, GateOptionValueType};
 use crate::gates;
@@ -31,7 +31,7 @@ use serenity::{
 };
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument, Span};
+use tracing::{debug, error, info, info_span, instrument,  warn, Instrument, Span};
 
 #[instrument(level = "debug")]
 pub async fn start() {
@@ -680,11 +680,33 @@ async fn get_in_check(interaction: &ApplicationCommandInteraction, ctx: &Context
 async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Context) -> Result<()> {
     debug!("checking `get out` request");
     let (tx, rx) = oneshot::channel();
+    let (role_tx, role_rx) = oneshot::channel();
+    let (removed_tx, removed_rx) = oneshot::channel();
+    let guild_id = interaction
+        .guild_id
+        .ok_or(anyhow!("Error getting guild id from command"))?;
+    let user_id = interaction.user.id;
+    let span = info_span!("controller");
+    let message = controller::Message::Roles {
+        guild_id: guild_id.into(),
+        response: role_tx,
+        span,
+    };
+    if let Err(err) = CONTROLLER_CHANNEL
+        .wait()
+        .send(message)
+        .in_current_span()
+        .await
+    {
+        error!("Error sending message to controller: {:?}", err);
+    }
+    let roles = role_rx.in_current_span().await?;
     let span = info_span!("controller");
     let message = controller::Message::Unregister {
-        user_id: interaction.user.id.into(),
+        user_id: user_id.into(),
         username: interaction.user.name.clone(),
         response_tx: tx,
+        removed_tx,
         span,
     };
     if let Err(err) = CONTROLLER_CHANNEL
@@ -700,14 +722,40 @@ async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Cont
         UnRegisterResponse::NotRegistered => {
             respond(ctx, interaction, "You are not registered", true)
                 .in_current_span()
-                .await
+                .await?
         }
         UnRegisterResponse::Unregister(url) => {
             unregister_user(ctx, interaction, &url)
                 .in_current_span()
-                .await
+                .await?
         }
         UnRegisterResponse::Error(why) => bail!("Error unregistering: {}", why),
+    };
+    match removed_rx.in_current_span().await? {
+        RemoveUserResponse::Success => {
+            let mut message = MessageBuilder::new();
+            message.push("You have been removed from the following roles: ");
+            for role in roles.iter() {
+                if let Err(why) = ctx
+                    .http
+                    .remove_member_role(guild_id.into(), user_id.into(), *role, None)
+                    .in_current_span()
+                    .await
+                {
+                    info!("Could not remove role: {:?}", why);
+                }
+
+                message.role(*role);
+            }
+            message.build();
+            follow_up(&ctx, interaction, message, true)
+                .in_current_span()
+                .await
+        }
+        RemoveUserResponse::Error(why) => {
+            info!("Error while removing user: {}", why);
+            Ok(())
+        }
     }
 }
 

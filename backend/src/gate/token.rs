@@ -109,7 +109,8 @@ impl GatingCondition for TokenGate {
             }
         };
         debug!(?balance, "Got token");
-        let amount_scaled = U256::from(self.amount) * U256::from(10).pow(self.token_decimals.into());
+        let amount_scaled =
+            U256::from(self.amount) * U256::from(10).pow(self.token_decimals.into());
         debug!(?amount_scaled, "Scaled amount");
         amount_scaled <= balance
     }

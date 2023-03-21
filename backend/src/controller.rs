@@ -16,17 +16,18 @@ use futures::FutureExt;
 use hex;
 use once_cell::sync::OnceCell;
 use secrecy::{ExposeSecret, SecretString};
-use std::sync::Arc;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     str::FromStr,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
+    sync::Mutex,
     sync::{mpsc, oneshot},
     task::JoinSet,
 };
-use tracing::{debug, error, instrument, Instrument, Span};
+use tracing::{debug, error, info, info_span, instrument, Instrument, Span};
 use urlencoding;
 
 /// The global channel on which the controller can be communicated with
@@ -83,10 +84,12 @@ pub enum Message {
         user_id: u64,
         username: String,
         response_tx: oneshot::Sender<UnRegisterResponse>,
+        removed_tx: oneshot::Sender<RemoveUserResponse>,
         span: Span,
     },
     RemovUser {
-        user_id: u64,
+        session: String,
+        response_tx: oneshot::Sender<RemoveUserResponse>,
         span: Span,
     },
 }
@@ -121,6 +124,12 @@ pub enum RegisterResponse {
 pub enum UnRegisterResponse {
     NotRegistered,
     Unregister(String),
+    Error(Error),
+}
+
+#[derive(Debug)]
+pub enum RemoveUserResponse {
+    Success,
     Error(Error),
 }
 
@@ -175,6 +184,8 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         S: Storage + Send + 'static,
         <S as Storage>::GateIter: Send,
     {
+        let pending_unregisters: Arc<Mutex<HashMap<String, oneshot::Sender<RemoveUserResponse>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         while let Some(message) = self.message_rx.recv().await {
             match message {
                 Message::Gate {
@@ -226,9 +237,27 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     username,
                     user_id,
                     response_tx,
+                    removed_tx,
                     span,
-                } => self.unregister(username, user_id, response_tx, span).await,
-                Message::RemovUser { user_id, span } => self.delete_user(user_id, span).await,
+                } => {
+                    self.unregister(
+                        username,
+                        user_id,
+                        response_tx,
+                        removed_tx,
+                        pending_unregisters.clone(),
+                        span,
+                    )
+                    .await
+                }
+                Message::RemovUser {
+                    session,
+                    response_tx,
+                    span,
+                } => {
+                    self.delete_user(session, response_tx, pending_unregisters.clone(), span)
+                        .await
+                }
             }
         }
     }
@@ -458,6 +487,8 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         username: String,
         user_id: u64,
         response_tx: oneshot::Sender<UnRegisterResponse>,
+        removed_tx: oneshot::Sender<RemoveUserResponse>,
+        pending_unregisters: Arc<Mutex<HashMap<String, oneshot::Sender<RemoveUserResponse>>>>,
         span: Span,
     ) {
         let _enter = span.enter();
@@ -502,13 +533,80 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         if let Err(why) = response_tx.send(UnRegisterResponse::Unregister(url)) {
             error!("Failed to send CheckResponse::Register: {:?}", why);
         };
+        let pending_unregisters2 = pending_unregisters.clone();
+        let esession = encoded_session.clone();
+        let mut guard = pending_unregisters.lock().in_current_span().await;
+        tokio::spawn(async move {
+            let span = info_span!("unregister_timeout");
+            let expiration = CONFIG.wait().session_expiration;
+            tokio::time::sleep(std::time::Duration::from_secs(expiration))
+                .in_current_span()
+                .await;
+            let _enter = span.enter();
+            info!("Session expired");
+            let mut guard = pending_unregisters2.lock().in_current_span().await;
+            if let Some(removed_tx) = guard.remove(&esession) {
+                if let Err(why) =
+                    removed_tx.send(RemoveUserResponse::Error(anyhow!("Session expired")))
+                {
+                    error!("Failed to send RemoveUserResponse::Expired: {:?}", why);
+                };
+            }
+        });
+        guard.insert(encoded_session, removed_tx);
     }
 
-    async fn delete_user(&mut self, user_id: u64, span: Span) {
+    async fn delete_user(
+        &mut self,
+        session_str: String,
+        response_tx: oneshot::Sender<RemoveUserResponse>,
+        pending_unregisters: Arc<Mutex<HashMap<String, oneshot::Sender<RemoveUserResponse>>>>,
+        span: Span,
+    ) {
         let _enter = span.enter();
-        debug!("Removing user");
-        if let Err(why) = self.storage.remove_user(&user_id) {
+        let session = match Session::from_str(&session_str) {
+            Ok(session) => session,
+            Err(why) => {
+                error!("Failed to decode session: {:?}", why);
+                if let Err(why) = response_tx.send(RemoveUserResponse::Error(why)) {
+                    error!("Failed to send RemoveUserResponse::Error: {:?}", why);
+                };
+                return;
+            }
+        };
+        let mut guard = pending_unregisters.lock().in_current_span().await;
+        let removed_tx = guard.remove(&session_str);
+        if session.expired() {
+            error!(?session, "Session expired");
+            if let Err(why) =
+                response_tx.send(RemoveUserResponse::Error(anyhow!("Session expired")))
+            {
+                error!("Failed to send RemoveUserResponse::Error: {:?}", why);
+            };
+            if let Some(removed_tx) = removed_tx {
+                if let Err(why) =
+                    removed_tx.send(RemoveUserResponse::Error(anyhow!("Session expired")))
+                {
+                    error!("Failed to send RemoveUserResponse::Success: {:?}", why);
+                };
+            } else {
+                error!("No pending unregister for session {}", session_str);
+            }
+            return;
+        }
+        debug!(session.user_id, "Removing user");
+        if let Err(why) = self.storage.remove_user(&session.user_id) {
             error!("Failed to remove user: {:?}", why);
+        }
+        if let Err(why) = response_tx.send(RemoveUserResponse::Success) {
+            error!("Failed to send RemoveUserResponse::Success: {:?}", why);
+        };
+        if let Some(removed_tx) = removed_tx {
+            if let Err(why) = removed_tx.send(RemoveUserResponse::Success) {
+                error!("Failed to send RemoveUserResponse::Success: {:?}", why);
+            };
+        } else {
+            error!("No pending unregister for session {}", session_str);
         }
     }
 }
@@ -581,7 +679,7 @@ impl Session {
             .duration_since(UNIX_EPOCH)
             .expect("Failed to get system timestamp")
             .as_secs();
-        timestamp - self.timestamp > 60
+        timestamp - self.timestamp > CONFIG.wait().session_expiration
     }
 
     pub fn encode(&self) -> Result<String> {

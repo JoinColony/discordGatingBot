@@ -3,7 +3,9 @@
 //!
 
 use crate::config::CONFIG;
-use crate::controller::{Message, RegisterResponse, Session, CONTROLLER_CHANNEL};
+use crate::controller::{
+    Message, RegisterResponse, RemoveUserResponse, Session, CONTROLLER_CHANNEL,
+};
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use colony_rs::Signature;
 use sailfish::TemplateOnce;
@@ -77,7 +79,7 @@ async fn favicon() -> impl Responder {
 #[instrument]
 #[get("/register/{username}/{session}")]
 async fn registration_form(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received registration form request for session {}", path.1);
+    debug!("Received registration request");
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -162,7 +164,7 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
 #[post("/register/{username}/{session}")]
 #[instrument]
 async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) -> impl Responder {
-    debug!("Received registration request");
+    debug!("Received acknowledged registration request");
     let (username_url, session_str) = path.into_inner();
     let session = match Session::from_str(&session_str) {
         Ok(session) => session,
@@ -530,8 +532,10 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
         }
     }
     let span = debug_span!("unregister", username = %username, user_id = %session.user_id);
+    let (tx, rx) = oneshot::channel();
     let message = Message::RemovUser {
-        user_id: session.user_id,
+        session: session_str,
+        response_tx: tx,
         span,
     };
 
@@ -540,13 +544,26 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
         return HttpResponse::InternalServerError().finish();
     }
 
-    let unregistration_success = Skeleton::unregister_success();
-    match unregistration_success.render_once() {
-        Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
-        Err(why) => {
-            error!("Error rendering unregistration success: {}", why);
-            HttpResponse::InternalServerError().finish()
+    if let Ok(response) = rx.await {
+        match response {
+            RemoveUserResponse::Success => {
+                let unregistration_success = Skeleton::unregister_success();
+                match unregistration_success.render_once() {
+                    Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
+                    Err(why) => {
+                        error!("Error rendering unregistration success: {}", why);
+                        HttpResponse::InternalServerError().finish()
+                    }
+                }
+            }
+            RemoveUserResponse::Error(why) => {
+                error!("Error removing user: {}", why);
+                HttpResponse::InternalServerError().finish()
+            }
         }
+    } else {
+        error!("Controller hung up");
+        HttpResponse::InternalServerError().finish()
     }
 }
 
