@@ -1,11 +1,12 @@
 use crate::gate::{
     GateOption, GateOptionType, GateOptionValue, GateOptionValueType, GatingCondition,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use cached::{proc_macro::cached, Cached, TimedCache};
 use colony_rs::{
-    get_colony_name, get_reputation_in_domain, u256_from_f64_saturating, H160, U256, U512,
+    get_colony_name, get_domain_count, get_reputation_in_domain, u256_from_f64_saturating, H160,
+    U256, U512,
 };
 use governor::{
     clock::DefaultClock,
@@ -20,7 +21,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, trace, warn, Instrument};
+use tracing::{debug,  info, instrument, trace, warn, Instrument};
 
 /// this must be smaller than 1e76 or so, to not overflow the later U512
 /// multiplications
@@ -97,7 +98,9 @@ impl GatingCondition for ReputationGate {
             bail!("First option must be colony");
         }
         let colony_address = match &options[0].value {
-            GateOptionValueType::String(s) => H160::from_str(&s)?,
+            GateOptionValueType::String(s) => {
+                H160::from_str(&s).context("Failed to create reputation gate, invalid address")?
+            }
             _ => bail!("Invalid option type, expected string for colony address"),
         };
         if options[1].name != "domain" {
@@ -113,6 +116,15 @@ impl GatingCondition for ReputationGate {
         if options[2].name != "reputation" {
             bail!("Third option must be reputation");
         }
+
+        let domaincount = get_domain_count(colony_address)
+            .await
+            .context("Failed to create reputation gate, could not get domains for colony")?;
+
+        if domain as u64 > domaincount {
+            bail!("The domain number is higher than the domain count in the colony");
+        }
+
         let reputation_percentage = match &options[2].value {
             GateOptionValueType::F64(f) => *f,
             _ => bail!("Invalid option type, expected float for reputation"),
@@ -126,8 +138,11 @@ impl GatingCondition for ReputationGate {
         let reputation_threshold_scaled =
             u256_from_f64_saturating(reputation_percentage * PRECISION_FACTOR);
 
-        let colony_name = get_colony_name(colony_address).await?;
-        debug!(?colony_name, "Got colony name:");
+        let colony_name = get_colony_name(colony_address).await.unwrap_or_else(|why| {
+            warn!("Error getting colony name: {}", why);
+            "".to_string()
+        });
+        debug!(?colony_name, "Colony name is:");
 
         let chain_id = U256::from(100);
         debug!("Done creating reputation gate from options");
@@ -153,7 +168,7 @@ impl GatingCondition for ReputationGate {
         .in_current_span()
         .await
         .unwrap_or_else(|why| {
-            error!("Error checking reputation: {}", why);
+            warn!("Error checking reputation: {}", why);
             false
         })
     }

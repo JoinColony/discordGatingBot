@@ -1,7 +1,7 @@
 use crate::gate::{
     GateOption, GateOptionType, GateOptionValue, GateOptionValueType, GatingCondition,
 };
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use colony_rs::{balance_off, get_token_decimals, get_token_symbol, H160, U256};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
-use tracing::{debug, error, instrument, Instrument};
+use tracing::{debug, instrument, warn, Instrument};
 
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
@@ -69,7 +69,9 @@ impl GatingCondition for TokenGate {
             bail!("First option must be token_address");
         }
         let token_address = match &options[0].value {
-            GateOptionValueType::String(s) => H160::from_str(s)?,
+            GateOptionValueType::String(s) => {
+                H160::from_str(s).context("Failed to create token gate, invalid address")?
+            }
             _ => bail!("Invalid option type"),
         };
         if options[1].name != "amount" {
@@ -77,13 +79,23 @@ impl GatingCondition for TokenGate {
         }
         let amount = match &options[1].value {
             GateOptionValueType::I64(i) => *i,
-            _ => bail!("Invalid option type"),
+            _ => return Err(anyhow!("Invalid option type").context("Failed to create token gate")),
         };
         let chain_id = U256::from(100);
 
-        let token_symbol = get_token_symbol(token_address).in_current_span().await?;
-        debug!(token_symbol, "Got token symbol:");
-        let token_decimals = get_token_decimals(token_address).in_current_span().await?;
+        let token_symbol = get_token_symbol(token_address)
+            .in_current_span()
+            .await
+            .unwrap_or_else(|why| {
+                warn!("Failed to get token symbol: {}", why);
+                "".to_string()
+            });
+        debug!(token_symbol, "Token symbol is:");
+        let token_decimals = get_token_decimals(token_address)
+            .in_current_span()
+            .await
+            .context("Failed to create token gate, could not get token decimals")?;
+
         debug!(token_decimals, "Got token decimals:");
 
         debug!("Done creating token gate from options");
@@ -104,7 +116,7 @@ impl GatingCondition for TokenGate {
         {
             Ok(b) => b,
             Err(why) => {
-                error!("Failed to get balance: {}", why);
+                warn!("Failed to get balance: {}", why);
                 return false;
             }
         };
