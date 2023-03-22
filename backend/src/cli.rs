@@ -6,8 +6,6 @@ use clap::Args;
 use clap::{
     crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand, ValueHint,
 };
-#[cfg(feature = "completion")]
-use clap_complete::Shell;
 use once_cell::sync::Lazy;
 use secrecy::SecretString;
 use serde::Deserialize;

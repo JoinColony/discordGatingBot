@@ -17,20 +17,10 @@ use chacha20poly1305::{
 use secrecy::ExposeSecret;
 use tokio;
 use tracing::info;
-#[cfg(feature = "completion")]
-use {clap::CommandFactory, clap_complete::generate, std::io};
 
 /// Chooses the appropriate actions based on the Commands enum
 pub fn execute(cli: &Cli) {
     match &cli.cmd {
-        #[cfg(feature = "completion")]
-        Some(Commands::Completion { shell }) => {
-            debug!("Generating completion script for {}", shell);
-            let mut cmd = Cli::command();
-            let cmd_name = cmd.get_name().to_string();
-            generate(*shell, &mut cmd, cmd_name, &mut io::stdout());
-        }
-
         Some(Commands::Config(ConfigCmd::Show)) => config::print_config(&cli.cfg),
 
         Some(Commands::Config(ConfigCmd::Template)) => config::print_template(),
