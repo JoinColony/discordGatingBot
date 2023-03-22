@@ -130,7 +130,6 @@ impl LogLevel {
                 );
             }
             Self::Error => {
-                println!("Verbosity level set to error");
                 #[cfg(feature = "jaeger-telemetry")]
                 println!(
                     "Jaeger telemetry enabled with endpoint: {}, however many \

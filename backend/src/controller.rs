@@ -305,7 +305,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
     fn delete_gate(&mut self, guild_id: u64, gate: Gate, span: Span) {
         let _enter = span.enter();
         debug!("Deleting gate: {:?}", gate);
-        if let Err(why) = self.storage.remove_gate(&guild_id, gate) {
+        if let Err(why) = self.storage.remove_gate(&guild_id, gate.identifier()) {
             error!("Failed to delete gate: {:?}", why);
         }
     }

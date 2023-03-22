@@ -8,17 +8,13 @@ use crate::config;
 use crate::config::CONFIG;
 use crate::controller::{self, BatchResponse, Controller, Message};
 use crate::discord;
-use crate::gate::{Gate, ReputationGate, PRECISION_FACTOR};
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
 use chacha20poly1305::{
     aead::{KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use colony_rs::U256;
-use colony_rs::{u256_from_f64_saturating, H160};
 use secrecy::ExposeSecret;
-use std::str::FromStr;
 use tokio;
 use tracing::info;
 #[cfg(feature = "completion")]
@@ -178,7 +174,7 @@ pub fn execute(cli: &Cli) {
                             .skip(*start as usize)
                             .take(*end as usize - *start as usize)
                             .for_each(|gate| {
-                                println!("{:?}", gate);
+                                println!("{}:{:?}", gate.identifier(), gate);
                             });
                     }
                 }
@@ -197,7 +193,7 @@ pub fn execute(cli: &Cli) {
                             .skip(*start as usize)
                             .take(*end as usize - *start as usize)
                             .for_each(|gate| {
-                                println!("{:?}", gate);
+                                println!("{}:{:?}", gate.identifier(), gate);
                             });
                     }
                 }
@@ -207,89 +203,21 @@ pub fn execute(cli: &Cli) {
             };
         }
 
-        Some(Commands::Storage(StorageCmd::Gate(GateCmd::Add {
-            guild_id,
-            colony_address,
-            domain_id,
-            reputation,
-            role_id,
-        }))) => {
-            match CONFIG.wait().storage.storage_type {
-                StorageType::Unencrypted => {
-                    let mut storage = SledUnencryptedStorage::new();
-                    let colony = H160::from_str(colony_address).expect("Invalid colony address");
-                    let gate = Gate {
-                        role_id: *role_id,
-                        condition: Box::new(ReputationGate {
-                            chain_id: U256::from(100),
-                            colony_address: colony,
-                            colony_name: "".to_string(),
-                            colony_domain: *domain_id,
-                            reputation_threshold_scaled: u256_from_f64_saturating(
-                                *reputation * PRECISION_FACTOR,
-                            ),
-                        }),
-                    };
-                    storage
-                        .add_gate(guild_id, gate)
-                        .expect("Failed to add gate");
-                }
-                StorageType::Encrypted => {
-                    let mut storage = SledEncryptedStorage::new();
-                    let colony = H160::from_str(colony_address).expect("Invalid colony address");
-                    let gate = Gate {
-                        role_id: *role_id,
-                        condition: Box::new(ReputationGate {
-                            chain_id: U256::from(100),
-                            colony_address: colony,
-                            colony_name: "".to_string(),
-                            colony_domain: *domain_id,
-                            reputation_threshold_scaled: u256_from_f64_saturating(
-                                *reputation * PRECISION_FACTOR,
-                            ),
-                        }),
-                    };
-                    storage
-                        .add_gate(guild_id, gate)
-                        .expect("Failed to add gate");
-                }
-                StorageType::InMemory => {
-                    panic!("InMemory storage does not make sense for this command")
-                }
-            };
-        }
-
         Some(Commands::Storage(StorageCmd::Gate(GateCmd::Remove {
             guild_id,
-            colony_address,
-            domain_id,
-            reputation,
-            role_id,
+            identifier,
         }))) => {
-            let colony = H160::from_str(colony_address).expect("Invalid colony address");
-            let gate = Gate {
-                role_id: *role_id,
-                condition: Box::new(ReputationGate {
-                    chain_id: U256::from(100),
-                    colony_address: colony,
-                    colony_domain: *domain_id,
-                    colony_name: "".to_string(),
-                    reputation_threshold_scaled: u256_from_f64_saturating(
-                        *reputation * PRECISION_FACTOR,
-                    ),
-                }),
-            };
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
                     storage
-                        .remove_gate(guild_id, gate)
+                        .remove_gate(guild_id, *identifier)
                         .expect("Failed to remove gate");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
                     storage
-                        .remove_gate(guild_id, gate)
+                        .remove_gate(guild_id, *identifier)
                         .expect("Failed to remove gate");
                 }
                 StorageType::InMemory => {
@@ -298,7 +226,7 @@ pub fn execute(cli: &Cli) {
             };
         }
 
-        Some(Commands::Discord(DiscordCmd::Register(RegisterCmd::Global))) => {
+        Some(Commands::Slash(SlashCommands::Register(RegisterCmd::Global))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -306,7 +234,7 @@ pub fn execute(cli: &Cli) {
             rt.block_on(discord::register_global_slash_commands())
         }
 
-        Some(Commands::Discord(DiscordCmd::Register(RegisterCmd::Guild { guild_id }))) => {
+        Some(Commands::Slash(SlashCommands::Register(RegisterCmd::Guild { guild_id }))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -314,7 +242,7 @@ pub fn execute(cli: &Cli) {
             rt.block_on(discord::register_guild_slash_commands(*guild_id));
         }
 
-        Some(Commands::Discord(DiscordCmd::Delete(DeleteCmd::Global))) => {
+        Some(Commands::Slash(SlashCommands::Delete(DeleteCmd::Global))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -322,7 +250,7 @@ pub fn execute(cli: &Cli) {
             rt.block_on(discord::delete_global_slash_commands())
         }
 
-        Some(Commands::Discord(DiscordCmd::Delete(DeleteCmd::Guild { guild_id }))) => {
+        Some(Commands::Slash(SlashCommands::Delete(DeleteCmd::Guild { guild_id }))) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

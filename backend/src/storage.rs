@@ -29,7 +29,7 @@ pub trait Storage {
     fn remove_guild(&mut self, guild_id: u64) -> Result<()>;
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter>;
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
+    fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()>;
     fn get_user(&self, user_id: &u64) -> Result<SecretString>;
     fn list_users(&self) -> Result<Self::UserIter>;
     fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()>;
@@ -71,7 +71,7 @@ impl Storage for InMemoryStorage {
         Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+    fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
         let mut gates = match self.gates.get(guild_id) {
             Some(gates) => gates.clone(),
             None => {
@@ -79,7 +79,7 @@ impl Storage for InMemoryStorage {
                 bail!("No gates found for guild {}", guild_id);
             }
         };
-        gates.retain(|g| g != &gate);
+        gates.retain(|g| g.identifier() != identifier);
         self.gates.insert(*guild_id, gates);
         Ok(())
     }
@@ -164,11 +164,10 @@ impl Storage for SledUnencryptedStorage {
         Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+    fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
-        let key = gate.identifier();
-        debug!("Removing gate {:?} with key {}", gate, key);
-        tree.remove(key.to_be_bytes())?;
+        debug!("Removing gate with identifier {}", identifier);
+        tree.remove(identifier.to_be_bytes())?;
         Ok(())
     }
 
@@ -282,10 +281,9 @@ impl Storage for SledEncryptedStorage {
         Ok(())
     }
 
-    fn remove_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+    fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
-        let key = gate.identifier();
-        tree.remove(key.to_be_bytes())?;
+        tree.remove(identifier.to_be_bytes())?;
         Ok(())
     }
 

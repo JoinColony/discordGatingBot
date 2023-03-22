@@ -52,7 +52,7 @@ impl GatingCondition for TokenGate {
             description: &"The amount of the token",
             required: true,
             option_type: GateOptionType::I64 {
-                min: Some(0),
+                min: Some(1),
                 max: None,
             },
         });

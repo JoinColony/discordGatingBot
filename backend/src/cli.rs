@@ -65,16 +65,23 @@ pub enum Commands {
     /// Interact with the presistent storage and encryption
     #[clap(subcommand)]
     Storage(StorageCmd),
-    /// Interact with discord directly, e.g. register slash commands
+    /// Interact with the discord slash commands
     #[clap(subcommand)]
-    Discord(DiscordCmd),
-    ///
+    Slash(SlashCommands),
+    /// Perfom a check on a user as if this user would have used the
+    /// `/get in` slash command in that guild
     Check {
+        /// The guild id in which the user should be checked
         guild_id: u64,
+        /// The discord user id to check
         user_id: u64,
     },
+    /// Perfom a check on a batch of user as if this someone on the server
+    /// would have used the `/gate enforce` slash command
     Batch {
+        /// The guild id in which the users should be checked
         guild_id: u64,
+        /// The discord user ids to check
         user_ids: Vec<u64>,
     },
 }
@@ -89,10 +96,10 @@ pub enum ConfigCmd {
     Template,
 }
 
-/// represents the discord sub command, used to register and delete slash commands
+/// Represents the slashcommands sub command, used to register and delete slash commands
 #[derive(Debug, Subcommand)]
 #[clap()]
-pub enum DiscordCmd {
+pub enum SlashCommands {
     /// Register the global slash commands
     #[clap(subcommand)]
     Register(RegisterCmd),
@@ -110,7 +117,7 @@ pub enum RegisterCmd {
     Global,
     /// Register the slash commands for a specific guild
     Guild {
-        /// The guild id
+        /// The guild id in which the commands should be registered
         #[clap(value_hint = ValueHint::Other)]
         guild_id: u64,
     },
@@ -121,11 +128,11 @@ pub enum RegisterCmd {
 #[derive(Debug, Subcommand)]
 #[clap()]
 pub enum DeleteCmd {
-    /// Register the global slash commands
+    /// Delete the global slash commands
     Global,
-    /// Register the slash commands for a specific guild
+    /// Delete the slash commands in a specific guild
     Guild {
-        /// The guild id
+        /// The guild id in which the commands should be deleted
         #[clap(value_hint = ValueHint::Other)]
         guild_id: u64,
     },
@@ -134,12 +141,12 @@ pub enum DeleteCmd {
 /// Represents the storage sub command, used to interact with the stored data
 /// and encryption. Commands that use the data on disk, only work if the
 /// bot is not running, otherwise the data is locked.
+/// Be careful, these commands are able to alter data in the storage_type
+/// and also expose secretes to the console, especially the user commands
 #[derive(Debug, Subcommand)]
 #[clap()]
 pub enum StorageCmd {
     /// Generates a new key than can be used for encryption at rest
-    /// Be careful, these commands are able to alter data in the storage_type
-    /// and also expose secretes to the console, especially the user commands
     Generate,
     /// List or delete discord guilds in the db
     #[clap(subcommand)]
@@ -167,7 +174,7 @@ pub enum GuildCmd {
     },
     /// Remove a guild
     Remove {
-        /// The discord user id
+        /// The discord guild id to delete
         #[clap(value_hint = ValueHint::Other)]
         guild_id: u64,
     },
@@ -198,7 +205,7 @@ pub enum UserCmd {
     },
     /// Remove a user
     Remove {
-        /// The discord user id
+        /// The discord user id to delete
         #[clap(value_hint = ValueHint::Other)]
         user_id: u64,
     },
@@ -210,7 +217,7 @@ pub enum UserCmd {
 pub enum GateCmd {
     /// List all gates
     List {
-        /// The discord guild(server) id
+        /// The discord guild id
         #[clap(short, long)]
         guild: Option<u64>,
         /// Starting index of the listed entries
@@ -220,41 +227,14 @@ pub enum GateCmd {
         #[clap(value_hint = ValueHint::Other, default_value = "100")]
         end: u64,
     },
-    /// Add a new gate
-    Add {
-        /// The guild id
-        #[clap(value_hint = ValueHint::Other)]
-        guild_id: u64,
-        /// The colony address
-        #[clap(value_hint = ValueHint::Other)]
-        colony_address: String,
-        /// The domain id
-        #[clap(value_hint = ValueHint::Other)]
-        domain_id: u64,
-        /// The percentage of reputation needed to get the role
-        #[clap(value_hint = ValueHint::Other)]
-        reputation: f64,
-        /// The discord role id
-        #[clap(value_hint = ValueHint::Other)]
-        role_id: u64,
-    },
     /// Remove a gate
     Remove {
         /// The guild id
         #[clap(value_hint = ValueHint::Other)]
         guild_id: u64,
-        /// The colony address
+        /// The gates identifier in the guild to delete
         #[clap(value_hint = ValueHint::Other)]
-        colony_address: String,
-        /// The domain
-        #[clap(value_hint = ValueHint::Other)]
-        domain_id: u64,
-        /// The percentage of reputation needed to get the role
-        #[clap(value_hint = ValueHint::Other)]
-        reputation: f64,
-        /// The discord role id
-        #[clap(value_hint = ValueHint::Other)]
-        role_id: u64,
+        identifier: u128,
     },
 }
 
@@ -281,8 +261,8 @@ pub struct CliConfig {
     pub storage: CliStorageConfig,
 }
 
-/// This structs contains the sub configuration for the discord client options.
-/// Just for structuring the cli flags
+/// This structs contains the sub configuration for the logging and monitoring
+/// options. Just for structuring the cli flags
 #[derive(Args, Clone, Debug, Default, Deserialize)]
 #[clap()]
 pub struct CliObservabilityConfig {
@@ -290,7 +270,7 @@ pub struct CliObservabilityConfig {
     #[clap(long, short = 'v', global(true), parse(from_occurrences))]
     pub verbose: u8,
     #[clap(long, short, global(true), conflicts_with = "verbose")]
-    /// Supress all logging
+    /// Suppress all logging
     pub quiet: bool,
     #[cfg(feature = "jaeger-telemetry")]
     /// The jaeger endpoint to send the traces to
