@@ -108,6 +108,7 @@ fn get_config_hirarchy(
 ) -> (PartialConf, PartialConf, PartialConf, PartialConf, PathBuf) {
     let cli_cfg = PartialConf {
         config_file: raw_cli_cfg.config_file.clone(),
+        maintenance: raw_cli_cfg.maintenance,
         observability: PartialObservabilityConf {
             verbosity: match (
                 raw_cli_cfg.observability.verbose,
@@ -174,6 +175,10 @@ pub struct GlobalConfig {
     /// The time it takes for a session to expire in seconds
     #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
     pub session_expiration: u64,
+    /// Start the bot in maintenance mode, this will do nothing except telling
+    /// discord users that the bot is in maintenance mode
+    #[config(env = "CLNY_MAINTENANCE", default = false)]
+    pub maintenance: bool,
     #[config(nested)]
     pub observability: ObservabilityConfig,
     /// The discord configuration

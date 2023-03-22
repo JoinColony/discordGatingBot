@@ -47,6 +47,20 @@ pub async fn start() {
     }
 }
 
+#[instrument(level = "debug")]
+pub async fn start_maintenance_mode() {
+    info!("Starting discord bot in maintenance mode");
+    let token = &CONFIG.wait().discord.token.expose_secret();
+    let mut client = Client::builder(token, GatewayIntents::GUILD_MEMBERS)
+        .event_handler(MaintenanceHandler)
+        .in_current_span()
+        .await
+        .expect("Error creating client");
+    if let Err(why) = client.start().in_current_span().await {
+        error!("Client error: {:?}", why);
+    }
+}
+
 #[instrument]
 pub async fn register_guild_slash_commands(guild_id: u64) {
     info!("Registering slash commands for guild");
@@ -158,6 +172,52 @@ pub async fn delete_global_slash_commands() {
         }
     }
     info!("Done deleting slash commands globally");
+}
+struct MaintenanceHandler;
+
+#[async_trait]
+impl EventHandler for MaintenanceHandler {
+    async fn ready(&self, _ctx: Context, ready: Ready) {
+        info!(
+            "{}({}) is connected in maintenance mode!",
+            ready.user.name, ready.user.id
+        );
+    }
+    #[instrument(
+        name = "handling_interaction_in_maintenance_mode",
+        level = "info",
+        skip(self, ctx, interaction),
+        fields(guild_id, interaction_id, username, user_id, command)
+    )]
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        match &interaction {
+            Interaction::ApplicationCommand(command) => {
+                let command_name = command.data.name.as_str();
+                let user_name = command.user.name.as_str();
+                let user_id = command.user.id;
+                let guild_id = command.guild_id.unwrap_or(0.into());
+                let interaction_id = command.id;
+                Span::current().record("guild_id", &guild_id.as_u64());
+                Span::current().record("username", &user_name);
+                Span::current().record("user_id", &user_id.as_u64());
+                Span::current().record("command", &command_name);
+                Span::current().record("interaction_id", &interaction_id.as_u64());
+                debug!("Start handling command interaction");
+                if let Err(why) = respond(
+                    &ctx,
+                    &command,
+                    "⚠️⚠️⚠️  The bot is currently in maintenance mode, and will be back soon",
+                    true,
+                )
+                .in_current_span()
+                .await
+                {
+                    error!("Could not respond to discord {:?}", why);
+                }
+            }
+            _ => info!("Received non-command interaction in maintenance mode, do nothing"),
+        }
+    }
 }
 
 /// The handler for the Discord client.

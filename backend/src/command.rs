@@ -16,7 +16,7 @@ use chacha20poly1305::{
 };
 use secrecy::ExposeSecret;
 use tokio;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Chooses the appropriate actions based on the Commands enum
 pub fn execute(cli: &Cli) {
@@ -308,6 +308,11 @@ pub fn execute(cli: &Cli) {
                 .enable_all()
                 .build()
                 .expect("Failed to build tokio runtime");
+
+            if CONFIG.wait().maintenance {
+                warn!("Starting in maintenance mode");
+                rt.block_on(discord::start_maintenance_mode()) ;
+            }
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {
                     info!("Using unencrypted storage");
