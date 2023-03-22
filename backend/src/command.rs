@@ -311,7 +311,7 @@ pub fn execute(cli: &Cli) {
 
             if CONFIG.wait().maintenance {
                 warn!("Starting in maintenance mode");
-                rt.block_on(discord::start_maintenance_mode()) ;
+                rt.block_on(discord::start_maintenance_mode());
             }
             match CONFIG.wait().storage.storage_type {
                 StorageType::Unencrypted => {

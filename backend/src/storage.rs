@@ -16,7 +16,7 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use sled::{self, IVec};
 use std::collections::HashMap;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 
 /// The storage trait that defines the methods that need to be implemented
 /// for a storage backend
@@ -39,6 +39,7 @@ pub trait Storage {
 
 /// The in-memory storage backend which does not persist data to disk
 /// should only be used for testing
+#[derive(Debug)]
 pub struct InMemoryStorage {
     gates: HashMap<u64, Vec<Gate>>,
     users: HashMap<u64, SecretString>,
@@ -55,23 +56,32 @@ impl Storage for InMemoryStorage {
             users: HashMap::new(),
         }
     }
+
+    #[instrument(skip(self))]
     fn list_guilds(&self) -> Self::GuildIter {
+        debug!("Listing guilds");
         self.gates.clone().into_keys()
     }
 
+    #[instrument(skip(self))]
     fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
+        debug!("Removing guild");
         self.gates
             .remove(&guild_id)
             .ok_or(anyhow!("guild {} does not exist", guild_id))?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        debug!("Adding gate");
         self.gates.entry(*guild_id).or_default().push(gate);
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
+        debug!("Removing gate");
         let mut gates = match self.gates.get(guild_id) {
             Some(gates) => gates.clone(),
             None => {
@@ -84,7 +94,9 @@ impl Storage for InMemoryStorage {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
+        debug!("Listing gates");
         if let Some(gates) = self.gates.get(&guild_id) {
             Ok(gates.clone().into_iter())
         } else {
@@ -92,26 +104,37 @@ impl Storage for InMemoryStorage {
         }
     }
 
+    #[instrument(skip(self))]
     fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+        debug!("Getting user");
         self.users
             .get(user_id)
             .ok_or(anyhow!("User {} not found", user_id))
             .cloned()
     }
 
+    #[instrument(skip(self))]
     fn list_users(&self) -> Result<Self::UserIter> {
+        debug!("Listing users");
         Ok(self.users.clone().into_iter())
     }
+
+    #[instrument(skip(self))]
     fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+        debug!("Adding user");
         self.users.insert(user_id, wallet);
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn contains_user(&self, user_id: &u64) -> bool {
+        debug!("Checking if user exists");
         self.users.contains_key(user_id)
     }
 
+    #[instrument(skip(self))]
     fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        debug!("Removing user");
         self.users
             .remove(user_id)
             .ok_or(anyhow!("user {} does not exist", user_id))?;
@@ -120,6 +143,7 @@ impl Storage for InMemoryStorage {
 }
 
 /// The sled storage backend which persists data to disk unencrypted
+#[derive(Debug)]
 pub struct SledUnencryptedStorage {
     db: sled::Db,
 }
@@ -139,39 +163,48 @@ impl Storage for SledUnencryptedStorage {
         SledUnencryptedStorage { db }
     }
 
+    #[instrument(skip(self))]
     fn list_guilds(&self) -> Self::GuildIter {
-        self.db.tree_names().into_iter().filter_map(|t| {
-            if let Ok(bytes) = t.to_vec().try_into() {
+        debug!("Listing guilds");
+        self.db.tree_names().into_iter().filter_map(|tree_name| {
+            if let Ok(bytes) = tree_name.to_vec().try_into() {
                 Some(u64::from_be_bytes(bytes))
             } else {
+                error!(?tree_name, "Failed to parse guild id from tree name");
                 None
             }
         })
     }
 
+    #[instrument(skip(self))]
     fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
+        debug!("Removing guild");
         let tree_name = guild_id.to_be_bytes().to_vec();
         self.db.drop_tree(tree_name)?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        debug!("Adding gate");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         let gate_bytes = bincode::serialize(&gate)?;
         let key = gate.identifier();
-        debug!("Adding gate {:?} with key {}", gate, key);
         tree.insert(key.to_be_bytes(), gate_bytes)?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
+        debug!("Removing gate");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
-        debug!("Removing gate with identifier {}", identifier);
         tree.remove(identifier.to_be_bytes())?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
+        debug!("Listing gates");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         Ok(tree.iter().filter_map(|result| {
             if let Ok((_, gate_bytes)) = result {
@@ -188,7 +221,9 @@ impl Storage for SledUnencryptedStorage {
         }))
     }
 
+    #[instrument(skip(self))]
     fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+        debug!("Getting user");
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
             None => bail!("User {} not found", user_id),
@@ -196,7 +231,9 @@ impl Storage for SledUnencryptedStorage {
         Ok(bincode::deserialize(&wallet)?)
     }
 
+    #[instrument(skip(self))]
     fn list_users(&self) -> Result<Self::UserIter> {
+        debug!("Listing users");
         Ok(self.db.iter().filter_map(|result| {
             if let Ok((user_id, wallet)) = result {
                 if let Ok(user_id) = user_id.to_vec().try_into() {
@@ -218,7 +255,9 @@ impl Storage for SledUnencryptedStorage {
         }))
     }
 
+    #[instrument(skip(self))]
     fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+        debug!("Adding user");
         self.db.insert(
             user_id.to_be_bytes(),
             bincode::serialize(&wallet.expose_secret())?,
@@ -226,11 +265,15 @@ impl Storage for SledUnencryptedStorage {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn contains_user(&self, user_id: &u64) -> bool {
+        debug!("Checking if user exists");
         self.db.contains_key(user_id.to_be_bytes()).unwrap_or(false)
     }
 
+    #[instrument(skip(self))]
     fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        debug!("Removing user");
         self.db.remove(user_id.to_be_bytes())?;
         Ok(())
     }
@@ -238,6 +281,7 @@ impl Storage for SledUnencryptedStorage {
 
 /// The default sled storage backend which persists data to disk and encrypts
 /// the wallet addresses of users
+#[derive(Debug)]
 pub struct SledEncryptedStorage {
     db: sled::Db,
 }
@@ -257,23 +301,30 @@ impl Storage for SledEncryptedStorage {
         Self { db }
     }
 
+    #[instrument(skip(self))]
     fn list_guilds(&self) -> Self::GuildIter {
-        self.db.tree_names().into_iter().filter_map(|t| {
-            if let Ok(bytes) = t.to_vec().try_into() {
+        debug!("Listing guilds");
+        self.db.tree_names().into_iter().filter_map(|tree_name| {
+            if let Ok(bytes) = tree_name.to_vec().try_into() {
                 Some(u64::from_be_bytes(bytes))
             } else {
+                error!(?tree_name, "Failed to deserialize tree name");
                 None
             }
         })
     }
 
+    #[instrument(skip(self))]
     fn remove_guild(&mut self, guild_id: u64) -> Result<()> {
+        debug!("Removing guild");
         let tree_name = guild_id.to_be_bytes().to_vec();
         self.db.drop_tree(tree_name)?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()> {
+        debug!("Adding gate");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         let gate_bytes = bincode::serialize(&gate)?;
         let key = gate.identifier();
@@ -281,13 +332,17 @@ impl Storage for SledEncryptedStorage {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()> {
+        debug!("Removing gate");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         tree.remove(identifier.to_be_bytes())?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
+        debug!("Listing gates");
         let tree = self.db.open_tree(guild_id.to_be_bytes())?;
         Ok(tree.iter().filter_map(|result| {
             if let Ok((_, v)) = result {
@@ -304,7 +359,9 @@ impl Storage for SledEncryptedStorage {
         }))
     }
 
+    #[instrument(skip(self))]
     fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+        debug!("Getting user");
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
             None => bail!("User {} not found", user_id),
@@ -313,7 +370,9 @@ impl Storage for SledEncryptedStorage {
         encrypted.decrypt()
     }
 
+    #[instrument(skip(self))]
     fn list_users(&self) -> Result<Self::UserIter> {
+        debug!("Listing users");
         Ok(self.db.iter().filter_map(|result| {
             if let Ok((user_id, wallet)) = result {
                 if let Ok(user_id) = user_id.to_vec().try_into() {
@@ -341,18 +400,24 @@ impl Storage for SledEncryptedStorage {
         }))
     }
 
+    #[instrument(skip(self))]
     fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+        debug!("Adding user");
         let encrypted = EncryptionWrapper::new(wallet)?;
         self.db
             .insert(user_id.to_be_bytes(), bincode::serialize(&encrypted)?)?;
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn contains_user(&self, user_id: &u64) -> bool {
+        debug!("Checking if user exists");
         self.db.contains_key(user_id.to_be_bytes()).unwrap_or(false)
     }
 
+    #[instrument(skip(self))]
     fn remove_user(&mut self, user_id: &u64) -> Result<()> {
+        debug!("Removing user");
         self.db.remove(user_id.to_be_bytes())?;
         Ok(())
     }
@@ -367,12 +432,15 @@ struct EncryptionWrapper {
 }
 
 impl EncryptionWrapper {
+    #[instrument(skip(plaintext))]
     fn new(plaintext: SecretString) -> Result<Self> {
+        debug!("Encrypting wallet");
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        debug!(?nonce, "Created nonce");
         let ciphertext = cipher
             .encrypt(&nonce, plaintext.expose_secret().as_bytes())
             .map_err(|e| anyhow!("{e}"))?;
@@ -383,12 +451,15 @@ impl EncryptionWrapper {
         })
     }
 
+    #[instrument(skip(self))]
     fn decrypt(&self) -> Result<SecretString> {
+        debug!("Decrypting wallet");
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.nonce);
+        debug!(?nonce, "Using nonce");
         let plaintext = cipher
             .decrypt(&nonce, self.ciphertext.as_ref())
             .map_err(|e| anyhow!("{e}"))?;

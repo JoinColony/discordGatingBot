@@ -21,7 +21,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{debug,  info, instrument, trace, warn, Instrument};
+use tracing::{debug, info, instrument, trace, warn, Instrument};
 
 /// this must be smaller than 1e76 or so, to not overflow the later U512
 /// multiplications
