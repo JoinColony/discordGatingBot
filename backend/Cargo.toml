@@ -10,7 +10,6 @@ categories = ["blockchain", "bot", "discord", "chat"]
 
 [features]
 profiling = ["pprof"]
-completion = ["dep:clap_complete"]
 jaeger-telemetry = ["opentelemetry-jaeger", "tracing-opentelemetry", "opentelemetry"]
 
 [dependencies]
@@ -21,7 +20,6 @@ bincode = "1.3.3"
 cached = { version = "0.42.0", features = ["async_tokio_rt_multi_thread"] }
 chacha20poly1305 = "0.10.1"
 clap = { version = "3.2.15", features = ["cargo", "derive"] }
-clap_complete = { version = "3.2.3", optional = true }
 colony-rs = { git = "https://github.com/JoinColony/colonyRS.git", branch = "main" }
 # colony-rs = { path = "../../colonyRS"}
 confique = "0.2.2"

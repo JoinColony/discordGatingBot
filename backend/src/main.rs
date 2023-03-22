@@ -53,10 +53,6 @@ use clap::Parser;
 use cli::Cli;
 use tracing::{instrument, warn};
 
-#[cfg(feature = "completion")]
-#[allow(unused_imports)]
-use {clap::CommandFactory, clap_complete::generate, std::io};
-
 /// The main entry point of the cli application. It sets up the logging and
 /// configuration and then executes the command via the command module.
 #[instrument]

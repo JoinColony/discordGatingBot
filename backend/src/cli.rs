@@ -53,12 +53,6 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 #[clap()]
 pub enum Commands {
-    /// Generates completion scripts for the specified shell
-    #[cfg(feature = "completion")]
-    Completion {
-        #[clap(value_parser, action)]
-        shell: Shell,
-    },
     /// Print the configuration and get a template file
     #[clap(subcommand)]
     Config(ConfigCmd),
