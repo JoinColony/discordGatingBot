@@ -17,6 +17,7 @@ pub static CONFIG: OnceCell<GlobalConfig> = OnceCell::new();
 
 /// Partial configuration used to construct the final configuration
 type PartialConf = <GlobalConfig as Config>::Partial;
+type PartialObservabilityConf = <ObservabilityConfig as Config>::Partial;
 /// Partial sub configuration of the server sub configuration
 /// used as part of the enclosing partial configuration
 type PartialServerConf = <ServerConfig as Config>::Partial;
@@ -107,13 +108,20 @@ fn get_config_hirarchy(
 ) -> (PartialConf, PartialConf, PartialConf, PartialConf, PathBuf) {
     let cli_cfg = PartialConf {
         config_file: raw_cli_cfg.config_file.clone(),
-        verbosity: match (raw_cli_cfg.verbose, raw_cli_cfg.quiet) {
-            (_, true) => Some(LogLevel::Off),
-            (0, _) => None,
-            (1, _) => Some(LogLevel::Warn),
-            (2, _) => Some(LogLevel::Info),
-            (3, _) => Some(LogLevel::Debug),
-            _ => Some(LogLevel::Trace),
+        observability: PartialObservabilityConf {
+            verbosity: match (
+                raw_cli_cfg.observability.verbose,
+                raw_cli_cfg.observability.quiet,
+            ) {
+                (_, true) => Some(LogLevel::Off),
+                (0, _) => None,
+                (1, _) => Some(LogLevel::Warn),
+                (2, _) => Some(LogLevel::Info),
+                (3, _) => Some(LogLevel::Debug),
+                _ => Some(LogLevel::Trace),
+            },
+            #[cfg(feature = "jaeger-telemetry")]
+            jaeger_endpoint: raw_cli_cfg.observability.jaeger_endpoint.clone(),
         },
         session_expiration: raw_cli_cfg.session_expiration,
         discord: PartialDiscordConf {
@@ -163,12 +171,11 @@ pub struct GlobalConfig {
     /// The path to the configuration file
     #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
     pub config_file: PathBuf,
-    /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
-    #[config(env = "CLNY_VERBOSITY", default = "Error")]
-    pub verbosity: LogLevel,
     /// The time it takes for a session to expire in seconds
     #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
     pub session_expiration: u64,
+    #[config(nested)]
+    pub observability: ObservabilityConfig,
     /// The discord configuration
     #[config(nested)]
     pub discord: DiscordConfig,
@@ -178,6 +185,17 @@ pub struct GlobalConfig {
     /// The configuration of the storage backend and encryption
     #[config(nested)]
     pub storage: StorageConfig,
+}
+
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct ObservabilityConfig {
+    /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
+    #[config(env = "CLNY_VERBOSITY", default = "Error")]
+    pub verbosity: LogLevel,
+    #[cfg(feature = "jaeger-telemetry")]
+    /// The jaeger endpoint to send the traces to
+    #[config(env = "CLNY_JAEGER_ENDPOINT", default = "127.0.0.1:6831")]
+    pub jaeger_endpoint: String,
 }
 
 /// The sub configuration for the http server

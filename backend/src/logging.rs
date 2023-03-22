@@ -19,7 +19,7 @@ static GUARD: OnceCell<WorkerGuard> = OnceCell::new();
 /// The logging module sets up the logging system as specified in
 /// configuration.
 pub fn setup_logging() {
-    let tracing_level = CONFIG.wait().verbosity.clone();
+    let tracing_level = CONFIG.wait().observability.verbosity.clone();
 
     // setting up the log tracer that forwards log messages to tracing
     if let Err(err) = tracing_log::LogTracer::init_with_filter(tracing_level.clone().into()) {
@@ -53,6 +53,25 @@ pub fn setup_logging() {
             .with_line_number(true),
     };
 
+    #[cfg(feature = "jaeger-telemetry")]
+    let tracer = opentelemetry_jaeger::new_agent_pipeline()
+        .with_endpoint(CONFIG.wait().observability.jaeger_endpoint.clone())
+        .with_service_name("discord-gating-bot")
+        .install_simple()
+        .unwrap();
+
+    #[cfg(feature = "jaeger-telemetry")]
+    let telemetry = tracing_opentelemetry::layer()
+        .with_tracer(tracer)
+        .with_filter(targets_filter.clone());
+
+    #[cfg(feature = "jaeger-telemetry")]
+    let registry = tracing_subscriber::registry()
+        .with(targets_filter)
+        .with(telemetry)
+        .with(subscriber);
+
+    #[cfg(not(feature = "jaeger-telemetry"))]
     let registry = tracing_subscriber::registry()
         .with(targets_filter)
         .with(subscriber);
@@ -77,11 +96,48 @@ pub enum LogLevel {
 impl LogLevel {
     fn print(&self) {
         match self {
-            Self::Trace => trace!("Tracing initialized"),
-            Self::Debug => debug!("Verbosity level set to debug"),
-            Self::Info => info!("Verbosity level set to info"),
-            Self::Warn => warn!("Verbosity level set to warn"),
-            Self::Error => println!("Verbosity level set to error"),
+            Self::Trace => {
+                trace!("Verbosity level set to trace");
+                #[cfg(feature = "jaeger-telemetry")]
+                trace!(
+                    "Jaeger telemetry enabled with endpoint: {}",
+                    CONFIG.wait().observability.jaeger_endpoint
+                );
+            }
+            Self::Debug => {
+                debug!("Verbosity level set to debug");
+                #[cfg(feature = "jaeger-telemetry")]
+                debug!(
+                    "Jaeger telemetry enabled with endpoint: {}",
+                    CONFIG.wait().observability.jaeger_endpoint
+                );
+            }
+            Self::Info => {
+                info!("Verbosity level set to info");
+                #[cfg(feature = "jaeger-telemetry")]
+                info!(
+                    "Jaeger telemetry enabled with endpoint: {}",
+                    CONFIG.wait().observability.jaeger_endpoint
+                );
+            }
+            Self::Warn => {
+                warn!("Verbosity level set to warn");
+                #[cfg(feature = "jaeger-telemetry")]
+                warn!(
+                    "Jaeger telemetry enabled with endpoint: {}, however many \
+                    traces will only be enabled for higher verbosity",
+                    CONFIG.wait().observability.jaeger_endpoint
+                );
+            }
+            Self::Error => {
+                println!("Verbosity level set to error");
+                #[cfg(feature = "jaeger-telemetry")]
+                println!(
+                    "Jaeger telemetry enabled with endpoint: {}, however many \
+                    traces will only be enabled for higher verbosity",
+                    CONFIG.wait().observability.jaeger_endpoint
+                );
+            }
             Self::Off => {}
         }
     }

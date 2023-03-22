@@ -31,7 +31,7 @@ use serenity::{
 };
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, info_span, instrument,  warn, Instrument, Span};
+use tracing::{debug, error, info, info_span, instrument, warn, Instrument, Span};
 
 #[instrument(level = "debug")]
 pub async fn start() {

@@ -17,11 +17,15 @@ use std::path::PathBuf;
 /// It is sourced from the cargo readme template, removing all template
 /// expression from the file.
 static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
-    include_str!("../README.tpl")
-        .lines()
-        .filter(|l| !(l.contains("{{") && l.contains("}}")))
-        .collect::<Vec<&str>>()
-        .join("\n")
+    format!(
+        "{}\n{}",
+        crate_description!(),
+        include_str!("../README.tpl")
+            .lines()
+            .filter(|l| !(l.contains("{{") && l.contains("}}")))
+            .collect::<Vec<&str>>()
+            .join("\n")
+    )
 });
 
 /// `Cli` is the main struct for the cli parser, it contains the gloabl flags
@@ -264,21 +268,34 @@ pub struct CliConfig {
     /// Sets a custom config file
     #[clap(short, long,  value_name = "FILE", value_hint = ValueHint::FilePath)]
     pub config_file: Option<PathBuf>,
-    /// Define the verbosity of the application, repeat for more verbosity
-    #[clap(long, short = 'v', global(true), parse(from_occurrences))]
-    pub verbose: u8,
-    #[clap(long, short, global(true), conflicts_with = "verbose")]
-    /// Supress all logging
-    pub quiet: bool,
     /// The time it takes for a session to expire in seconds
     #[clap(long, short)]
     pub session_expiration: Option<u64>,
+    #[clap(flatten)]
+    pub observability: CliObservabilityConfig,
     #[clap(flatten)]
     pub discord: CliDiscordConfig,
     #[clap(flatten)]
     pub server: CliServerConfig,
     #[clap(flatten)]
     pub storage: CliStorageConfig,
+}
+
+/// This structs contains the sub configuration for the discord client options.
+/// Just for structuring the cli flags
+#[derive(Args, Clone, Debug, Default, Deserialize)]
+#[clap()]
+pub struct CliObservabilityConfig {
+    /// Define the verbosity of the application, repeat for more verbosity
+    #[clap(long, short = 'v', global(true), parse(from_occurrences))]
+    pub verbose: u8,
+    #[clap(long, short, global(true), conflicts_with = "verbose")]
+    /// Supress all logging
+    pub quiet: bool,
+    #[cfg(feature = "jaeger-telemetry")]
+    /// The jaeger endpoint to send the traces to
+    #[clap(long, short, global(true))]
+    pub jaeger_endpoint: Option<String>,
 }
 
 /// This structs contains the sub configuration for the discord client options.
