@@ -6,7 +6,8 @@ use crate::config::CONFIG;
 use crate::controller::{
     Message, RegisterResponse, RemoveUserResponse, Session, CONTROLLER_CHANNEL,
 };
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
+use anyhow::{bail, Result};
 use colony_rs::Signature;
 use sailfish::TemplateOnce;
 use secrecy::{ExposeSecret, SecretString};
@@ -34,9 +35,9 @@ pub async fn start() -> std::io::Result<()> {
             .service(index)
             .service(favicon)
             .service(script)
-            .service(registration_form)
+            .service(registration_page)
             .service(register)
-            .service(unregistration_form)
+            .service(unregistration_page)
             .service(unregister)
     })
     .bind((host, port))?
@@ -48,14 +49,7 @@ pub async fn start() -> std::io::Result<()> {
 #[get("/")]
 async fn index() -> impl Responder {
     debug!("Received index request");
-    let index = Skeleton::index();
-    match index.render_once() {
-        Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
-        Err(why) => {
-            error!("Error rendering index: {}", why);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
+    Skeleton::index()
 }
 
 #[instrument]
@@ -78,87 +72,18 @@ async fn favicon() -> impl Responder {
 
 #[instrument]
 #[get("/register/{username}/{session}")]
-async fn registration_form(path: web::Path<(String, String)>) -> impl Responder {
+async fn registration_page(path: web::Path<(String, String)>) -> impl Responder {
     debug!("Received registration request");
     let (username_url, session_str) = path.into_inner();
-    let session = match Session::from_str(&session_str) {
+    let session = match validate_session(&username_url, &session_str) {
         Ok(session) => session,
-        Err(_) => {
-            warn!("Invalid session");
-            let invalid_session = Skeleton::invalid_session();
-            match invalid_session.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid session: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-    if session.expired() {
-        debug!(?session, "Session expired");
-        let expired_session = Skeleton::expired_session();
-        match expired_session.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering expired session: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let username = match urlencoding::decode(&username_url) {
-        Ok(username) => username,
-        Err(_) => {
-            warn!(?username_url, "Invalid username");
-            let invalid_username = Skeleton::invalid_username();
-            match invalid_username.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid username: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-
-    if username != session.username {
-        warn!(
-            "Invalid username for session {} != {}",
-            username, session.username
-        );
-        let invalid_username = Skeleton::invalid_username();
-        match invalid_username.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering invalid username: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let registration_form = Skeleton::registration_form();
-    match registration_form.render_once() {
-        Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
         Err(why) => {
-            error!("Error rendering registration form: {}", why);
-            HttpResponse::InternalServerError().finish()
+            warn!("Invalid session: {}", why);
+            return Skeleton::invalid_session(&why.to_string());
         }
-    }
+    };
+    debug!(?session, "Valid session");
+    Skeleton::registration_page()
 }
 
 #[post("/register/{username}/{session}")]
@@ -166,294 +91,69 @@ async fn registration_form(path: web::Path<(String, String)>) -> impl Responder 
 async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) -> impl Responder {
     debug!("Received acknowledged registration request");
     let (username_url, session_str) = path.into_inner();
-    let session = match Session::from_str(&session_str) {
+    let session = match validate_session(&username_url, &session_str) {
         Ok(session) => session,
-        Err(_) => {
-            warn!("Invalid session {}", session_str);
-            let invalid_session = Skeleton::invalid_session();
-            match invalid_session.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid session: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
+        Err(why) => {
+            warn!("Invalid session: {}", why);
+            return Skeleton::invalid_session(&why.to_string());
         }
     };
-    if session.expired() {
-        debug!("Session {} expired", session_str);
-        let expired_session = Skeleton::expired_session();
-        match expired_session.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering expired session: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-
-    let username = match urlencoding::decode(&username_url) {
-        Ok(username) => username,
-        Err(_) => {
-            debug!("Failed to decode username {}", username_url);
-            let invalid_username = Skeleton::invalid_username();
-            match invalid_username.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid username: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-
-    if username != session.username {
-        warn!(
-            "Username {} does not match session username {}",
-            username, session.username
-        );
-        let invalid_username = Skeleton::invalid_username();
-        match invalid_username.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering invalid username: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-
-    let signature = match Signature::from_str(&data.signature.expose_secret()) {
-        Ok(signature) => signature,
-        Err(_) => {
-            warn!("Invalid signature");
-            let invalid_signature = Skeleton::invalid_signature();
-            match invalid_signature.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid signature: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-
-    let message = REGISTRATION_MESSAGE
-        .replace("{username}", &session.username)
-        .replace("{session}", &session_str);
-    let wallet = match colony_rs::Address::from_str(&data.address.expose_secret()) {
+    debug!(?session, "Valid session");
+    let wallet = match validate_signature(&data, &session, &session_str) {
         Ok(wallet) => wallet,
-        Err(_) => {
-            warn!("Invalid wallet");
-            let invalid_wallet = Skeleton::invalid_address();
-            match invalid_wallet.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid wallet: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
+        Err(why) => {
+            warn!("Invalid signature: {}", why);
+            return Skeleton::invalid_signature(&why.to_string());
         }
     };
-
-    if signature.verify(message.clone(), wallet).is_err() {
-        warn!("Invalid signature message");
-        let invalid_signature = Skeleton::invalid_signature();
-        match invalid_signature.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering invalid signature: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-
-    let (tx, rx) = oneshot::channel();
-
-    let span = debug_span!("server_register", username = %username, wallet = %wallet);
+    debug!(?wallet, "Valid signature");
+    let (response_tx, rx) = oneshot::channel();
+    let span = debug_span!("server_register", %session.username, %session.user_id);
     let message = Message::Register {
         user_id: session.user_id,
-        wallet: data.address.clone(),
-        response_tx: tx,
+        wallet,
+        response_tx,
         span,
     };
-
     if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
         error!("Error sending message to controller: {}", why);
-        return HttpResponse::InternalServerError().finish();
+        return Skeleton::internal_error();
     }
-
     if let Ok(response) = rx.await {
         match response {
             RegisterResponse::Success => {
                 debug!("Registration successful");
-                let registration_success = Skeleton::register_success();
-                match registration_success.render_once() {
-                    Ok(html) => return HttpResponse::Ok().content_type("text/html").body(html),
-                    Err(why) => {
-                        error!("Error rendering registration success: {}", why);
-                        return HttpResponse::InternalServerError().finish();
-                    }
-                }
+                return Skeleton::register_success();
             }
             RegisterResponse::AlreadyRegistered => {
                 debug!("User already registered");
-                let already_registered = Skeleton::already_registered();
-                match already_registered.render_once() {
-                    Ok(html) => {
-                        return HttpResponse::BadRequest()
-                            .content_type("text/html")
-                            .body(html)
-                    }
-                    Err(why) => {
-                        error!("Error rendering already registered: {}", why);
-                        return HttpResponse::InternalServerError().finish();
-                    }
-                }
+                return Skeleton::already_registered();
             }
             RegisterResponse::Error(why) => {
                 warn!("Internal registration error: {}", why);
-                let registration_error = Skeleton::internal_error();
-                match registration_error.render_once() {
-                    Ok(html) => {
-                        return HttpResponse::InternalServerError()
-                            .content_type("text/html")
-                            .body(html)
-                    }
-                    Err(why) => {
-                        error!("Error rendering internal error: {}", why);
-                        return HttpResponse::InternalServerError().finish();
-                    }
-                }
+                return Skeleton::internal_error();
             }
         }
     } else {
         error!("Failed to receive response from controller");
-        let internal_error = Skeleton::internal_error();
-        match internal_error.render_once() {
-            Ok(html) => {
-                return HttpResponse::InternalServerError()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering internal error: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
+        Skeleton::internal_error()
     }
 }
 
 #[get("/unregister/{username}/{session}")]
 #[instrument]
-async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responder {
+async fn unregistration_page(path: web::Path<(String, String)>) -> impl Responder {
     debug!("Received unregister request");
     let (username_url, session_str) = path.into_inner();
-    let session = match Session::from_str(&session_str) {
+    let session = match validate_session(&username_url, &session_str) {
         Ok(session) => session,
-        Err(_) => {
-            warn!("Invalid session");
-            let invalid_session = Skeleton::invalid_session();
-            match invalid_session.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid session: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-    if session.expired() {
-        debug!(?session, "Session expired");
-        let expired_session = Skeleton::expired_session();
-        match expired_session.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering expired session: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let username = match urlencoding::decode(&username_url) {
-        Ok(username) => username,
-        Err(_) => {
-            warn!("Could not decode username");
-            let invalid_username = Skeleton::invalid_username();
-            match invalid_username.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid username: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-
-    if username != session.username {
-        warn!(
-            "Invalid username for session {} != {}",
-            username, session.username
-        );
-        let invalid_username = Skeleton::invalid_username();
-        match invalid_username.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering invalid username: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let unregistration_form = Skeleton::unregistration_form();
-    match unregistration_form.render_once() {
-        Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
         Err(why) => {
-            error!("Error rendering unregistration form: {}", why);
-            HttpResponse::InternalServerError().finish()
+            warn!("Invalid session");
+            return Skeleton::invalid_session(&why.to_string());
         }
-    }
+    };
+    debug!(?session, "Valid session");
+    Skeleton::unregistration_page()
 }
 
 #[post("/unregister/{username}/{session}")]
@@ -461,110 +161,77 @@ async fn unregistration_form(path: web::Path<(String, String)>) -> impl Responde
 async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
     debug!("Received acknowledged unregistration request");
     let (username_url, session_str) = path.into_inner();
-    let session = match Session::from_str(&session_str) {
+    let session = match validate_session(&username_url, &session_str) {
         Ok(session) => session,
-        Err(_) => {
-            warn!("Invalid session {}", session_str);
-            let invalid_session = Skeleton::invalid_session();
-            match invalid_session.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid session: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
+        Err(why) => {
+            warn!("Invalid session");
+            return Skeleton::invalid_session(&why.to_string());
         }
     };
-    if session.expired() {
-        debug!("Session {} expired", session_str);
-        let expired_session = Skeleton::expired_session();
-        match expired_session.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering expired session: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let username = match urlencoding::decode(&username_url) {
-        Ok(username) => username,
-        Err(_) => {
-            debug!("Failed to decode username {}", username_url);
-            let invalid_username = Skeleton::invalid_username();
-            match invalid_username.render_once() {
-                Ok(html) => {
-                    return HttpResponse::BadRequest()
-                        .content_type("text/html")
-                        .body(html)
-                }
-                Err(why) => {
-                    error!("Error rendering invalid username: {}", why);
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-        }
-    };
-
-    if username != session.username {
-        warn!(
-            "Username {} does not match session username {}",
-            username, session.username
-        );
-        let invalid_username = Skeleton::invalid_username();
-        match invalid_username.render_once() {
-            Ok(html) => {
-                return HttpResponse::BadRequest()
-                    .content_type("text/html")
-                    .body(html)
-            }
-            Err(why) => {
-                error!("Error rendering invalid username: {}", why);
-                return HttpResponse::InternalServerError().finish();
-            }
-        }
-    }
-    let span = debug_span!("unregister", username = %username, user_id = %session.user_id);
+    let span = debug_span!("unregister", %session.username, %session.user_id);
     let (tx, rx) = oneshot::channel();
     let message = Message::RemovUser {
         session: session_str,
         response_tx: tx,
         span,
     };
-
     if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
-        error!("Failed to send message to controller: {}", why);
-        return HttpResponse::InternalServerError().finish();
+        error!("Error sending message to controller: {}", why);
+        return Skeleton::internal_error();
     }
-
     if let Ok(response) = rx.await {
         match response {
             RemoveUserResponse::Success => {
-                let unregistration_success = Skeleton::unregister_success();
-                match unregistration_success.render_once() {
-                    Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
-                    Err(why) => {
-                        error!("Error rendering unregistration success: {}", why);
-                        HttpResponse::InternalServerError().finish()
-                    }
-                }
+                debug!("Unregistration successful");
+                Skeleton::unregister_success()
             }
             RemoveUserResponse::Error(why) => {
                 error!("Error removing user: {}", why);
-                HttpResponse::InternalServerError().finish()
+                Skeleton::internal_error()
             }
         }
     } else {
         error!("Controller hung up");
-        HttpResponse::InternalServerError().finish()
+        Skeleton::internal_error()
     }
+}
+
+#[instrument(skip(data))]
+fn validate_signature(
+    data: &JsonData,
+    session: &Session,
+    session_str: &str,
+) -> Result<SecretString> {
+    let signature = Signature::from_str(data.signature.expose_secret())?;
+    let message = REGISTRATION_MESSAGE
+        .replace("{username}", &session.username)
+        .replace("{session}", session_str);
+    debug!(?message, "Message to verify");
+    let wallet = colony_rs::Address::from_str(data.address.expose_secret())?;
+    if let Err(why) = signature.verify(message.clone(), wallet) {
+        warn!("Invalid message: {}", why);
+        bail!("Invalid message");
+    }
+    Ok(data.address.clone())
+}
+
+#[instrument]
+fn validate_session(username_url: &str, session_str: &str) -> Result<Session> {
+    let session = Session::from_str(&session_str)?;
+    if session.expired() {
+        debug!("Session expired");
+        bail!("Session expired");
+    }
+    let username = urlencoding::decode(&username_url)?;
+
+    if username != session.username {
+        warn!(
+            "Username {} does not match session username {}",
+            username, session.username
+        );
+        bail!("Invalid username");
+    }
+    Ok(session)
 }
 
 #[derive(Debug, Deserialize)]
@@ -573,28 +240,42 @@ struct JsonData {
     address: SecretString,
 }
 
-#[derive(TemplateOnce)]
+#[derive(Debug)]
+struct Button {
+    text: &'static str,
+    link: String,
+}
+
+#[derive(Debug)]
+struct FormInput {
+    title: &'static str,
+    method: &'static str,
+    action: &'static str,
+}
+
+#[derive(Debug, TemplateOnce)]
 #[template(path = "skeleton.stpl")]
 struct Skeleton {
-    index_script: Option<String>,
+    index_script: Option<&'static str>,
     paragraph_text: String,
     button: Option<Button>,
     form_input: Option<FormInput>,
 }
 
-struct Button {
-    text: String,
-    link: String,
-}
-
-struct FormInput {
-    title: String,
-    method: String,
-    action: String,
-}
-
 impl Skeleton {
-    fn index() -> Self {
+    #[instrument(skip(response))]
+    fn render_response(self, name: &str, mut response: HttpResponseBuilder) -> HttpResponse {
+        match self.render_once() {
+            Ok(html) => response.content_type("text/html").body(html),
+            Err(why) => {
+                error!("Error rendering {}: {}", name, why);
+                HttpResponse::InternalServerError().finish()
+            }
+        }
+    }
+
+    #[instrument]
+    fn index() -> HttpResponse {
         let link = CONFIG.wait().discord.invite_url.clone();
         Skeleton {
             index_script: None,
@@ -602,112 +283,101 @@ impl Skeleton {
 This is the <a href="https://colony.io">colony</a> discord bot. You can invite the bot to your discord server and then use the <b>/get in</b> and <b>/gate</b> commands there. After the bot joined, you must reorder the created bot role in the role hierarchy to be above all roles the bot should manage.
             "#.to_string(),
             button: Some(Button {
-                text: "Invite Bot".to_string(),
+                text: "Invite Bot",
                 link,
             }),
             form_input: None,
         }
+        .render_response("index", HttpResponse::Ok())
     }
 
-    fn invalid_session() -> Self {
+    #[instrument]
+    fn invalid_session(reason: &str) -> HttpResponse {
         Skeleton {
             index_script: None,
-            paragraph_text: "Invalid session".to_string(),
+            paragraph_text: format!("Invalid session: {}", reason),
             button: None,
             form_input: None,
         }
+        .render_response("invalid session", HttpResponse::BadRequest())
     }
 
-    fn expired_session() -> Self {
+    #[instrument]
+    fn registration_page() -> HttpResponse {
         Skeleton {
-            index_script: None,
-            paragraph_text: "Session expired".to_string(),
-            button: None,
-            form_input: None,
-        }
-    }
-
-    fn invalid_username() -> Self {
-        Skeleton {
-            index_script: None,
-            paragraph_text: "Invalid username".to_string(),
-            button: None,
-            form_input: None,
-        }
-    }
-
-    fn registration_form() -> Self {
-        Skeleton {
-            index_script: Some("/index.js".to_string()),
+            index_script: Some("/index.js"),
             paragraph_text: "Welcome to the registration to the colony gating bot. \
             Here you can register your wallet address with metamask <br />"
                 .to_string(),
             button: None,
             form_input: None,
         }
+        .render_response("registration page", HttpResponse::Ok())
     }
 
-    fn invalid_signature() -> Self {
+    #[instrument]
+    fn invalid_signature(reason: &str) -> HttpResponse {
         Skeleton {
             index_script: None,
-            paragraph_text: "Invalid signature".to_string(),
+            paragraph_text: format!("Invalid signature: {}", reason),
             button: None,
             form_input: None,
         }
+        .render_response("invalid signature", HttpResponse::BadRequest())
     }
 
-    fn invalid_address() -> Self {
-        Skeleton {
-            index_script: None,
-            paragraph_text: "Invalid address".to_string(),
-            button: None,
-            form_input: None,
-        }
-    }
-
-    fn register_success() -> Self {
+    #[instrument]
+    fn register_success() -> HttpResponse {
         Skeleton {
             index_script: None,
             paragraph_text: "Registration successful".to_string(),
             button: None,
             form_input: None,
         }
+        .render_response("register success", HttpResponse::Ok())
     }
 
-    fn already_registered() -> Self {
+    #[instrument]
+    fn already_registered() -> HttpResponse {
         Skeleton {
             index_script: None,
             paragraph_text: "You are already registered".to_string(),
             button: None,
             form_input: None,
         }
+        .render_response("already registered", HttpResponse::BadRequest())
     }
 
-    fn internal_error() -> Self {
+    #[instrument]
+    fn internal_error() -> HttpResponse {
         Skeleton {
             index_script: None,
             paragraph_text: "Internal error".to_string(),
             button: None,
             form_input: None,
         }
+        .render_response("internal error", HttpResponse::InternalServerError())
     }
 
-    fn unregistration_form() -> Self {
+    #[instrument]
+    fn unregistration_page() -> HttpResponse {
         Skeleton {
             index_script: None,
             paragraph_text: "Welcome to the unregistration from the colony gating bot.\
             Here you can unregister your wallet address <br />"
                 .to_string(),
+
             button: None,
             form_input: Some(FormInput {
-                title: "Unregister".to_string(),
-                method: "POST".to_string(),
-                action: "".to_string(),
+                title: "Unregister",
+                method: "POST",
+                action: "",
             }),
         }
+        .render_response("unregistration page", HttpResponse::Ok())
     }
 
-    fn unregister_success() -> Self {
+    fn unregister_success() -> HttpResponse {
         Skeleton {
             index_script: None,
             paragraph_text: "Deregistration successful! Hope to see you again \
@@ -716,6 +386,7 @@ This is the <a href="https://colony.io">colony</a> discord bot. You can invite t
             button: None,
             form_input: None,
         }
+        .render_response("unregister success", HttpResponse::Ok())
     }
 }
 

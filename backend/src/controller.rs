@@ -7,8 +7,10 @@ use crate::gate::Gate;
 use crate::{config::CONFIG, storage::Storage};
 use anyhow::{anyhow, bail, Error, Result};
 use chacha20poly1305::{
-    aead::generic_array::GenericArray,
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    aead::{
+        generic_array::GenericArray,
+        {Aead, AeadCore, KeyInit, OsRng},
+    },
     ChaCha20Poly1305,
 };
 use colony_rs::H160;
