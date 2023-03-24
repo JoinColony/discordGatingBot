@@ -154,6 +154,22 @@ impl std::fmt::Display for LogLevel {
     }
 }
 
+impl std::str::FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Off" => Ok(LogLevel::Off),
+            "Error" => Ok(LogLevel::Error),
+            "Warn" => Ok(LogLevel::Warn),
+            "Info" => Ok(LogLevel::Info),
+            "Debug" => Ok(LogLevel::Debug),
+            "Trace" => Ok(LogLevel::Trace),
+            _ => Err(format!("Invalid log level: {}", s)),
+        }
+    }
+}
+
 impl From<LogLevel> for LevelFilter {
     fn from(level: LogLevel) -> Self {
         match level {

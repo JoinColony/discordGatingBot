@@ -64,8 +64,15 @@ fn main() {
         .build()
         .expect("Failed to start profiler");
     let cli = Cli::parse();
-    config::setup_config(&cli.cfg).expect("Failed to setup config");
-    logging::setup_logging();
+    // for certain commands we need to skip the config setup
+    match cli.cmd {
+        Some(cli::Commands::Storage(cli::StorageCmd::Generate)) => {}
+        Some(cli::Commands::Config(_)) => {}
+        _ => {
+            config::setup_config(&cli.cfg).expect("Failed to setup config");
+            logging::setup_logging();
+        }
+    }
     command::execute(&cli);
     #[cfg(feature = "profiling")]
     if let Ok(report) = guard.report().build() {

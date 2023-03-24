@@ -238,10 +238,10 @@ pub enum GateCmd {
 #[clap()]
 pub struct CliConfig {
     /// Sets a custom config file
-    #[clap(short, long,  value_name = "FILE", value_hint = ValueHint::FilePath)]
+    #[clap(short, long,  value_name = "FILE", value_hint = ValueHint::FilePath, global(true))]
     pub config_file: Option<PathBuf>,
     /// The time it takes for a session to expire in seconds
-    #[clap(long, short)]
+    #[clap(long, short, global(true))]
     pub session_expiration: Option<u64>,
     /// Start the bot in maintenance mode, this will do nothing except telling
     /// discord users that the bot is in maintenance mode. This allows
@@ -281,10 +281,10 @@ pub struct CliObservabilityConfig {
 #[clap()]
 pub struct CliDiscordConfig {
     /// The discord bot token
-    #[clap(short, long)]
+    #[clap(short, long, global(true))]
     pub token: Option<SecretString>,
     /// The discor bot invitation url
-    #[clap(short, long)]
+    #[clap(short, long, global(true))]
     pub invite_url: Option<String>,
 }
 
@@ -294,13 +294,13 @@ pub struct CliDiscordConfig {
 #[clap()]
 pub struct CliServerConfig {
     /// The address to listen on
-    #[clap(short = 'H', long)]
+    #[clap(short = 'H', long, global(true))]
     pub host: Option<String>,
     /// The base url under which the server is reachable
-    #[clap(short, long)]
+    #[clap(short, long, global(true))]
     pub url: Option<String>,
     /// The port to listen on
-    #[clap(short = 'P', long)]
+    #[clap(short = 'P', long, global(true))]
     pub port: Option<u16>,
 }
 
@@ -310,13 +310,13 @@ pub struct CliServerConfig {
 #[clap()]
 pub struct CliStorageConfig {
     /// The path where the persistent data is stored
-    #[clap(short, long)]
+    #[clap(short, long, global(true))]
     pub directory: Option<PathBuf>,
     /// How to store data, on disk or in memory
-    #[clap(short = 'S', long)]
+    #[clap(short = 'S', long, global(true))]
     pub storage_type: Option<StorageType>,
     /// The encryption_key used to encrypt the stored data
-    #[clap(short, long)]
+    #[clap(short, long, global(true))]
     pub key: Option<SecretString>,
 }
 
@@ -329,12 +329,6 @@ pub enum StorageType {
     Unencrypted,
     /// Store data in memory, this is not persistent
     InMemory,
-}
-
-impl Default for StorageType {
-    fn default() -> Self {
-        Self::Encrypted
-    }
 }
 
 impl std::str::FromStr for StorageType {

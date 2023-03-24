@@ -6,17 +6,98 @@ use crate::cli::{CliConfig, StorageType};
 use crate::logging::LogLevel;
 use confique::{toml, toml::FormatOptions, Config, File, FileFormat, Partial};
 use once_cell::sync::OnceCell;
-use regex::Regex;
 use secrecy::SecretString;
 use serde::Deserialize;
-use std::{fs, path::PathBuf};
+use std::{path::PathBuf, str::FromStr};
 
 /// The global configuration is loaded into a global static OnceCell
 /// and can be accessed from there by all parts of the application
 pub static CONFIG: OnceCell<GlobalConfig> = OnceCell::new();
 
+/// The main configuration struct used by the entire application
+/// it is constructed from the partial configurations from different sources
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct GlobalConfig {
+    /// The path to the configuration file, specifiying this in the config
+    /// file itself does not have any effect since the config file is loaded
+    /// already
+    #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
+    pub config_file: PathBuf,
+    /// The time it takes for a session to expire in seconds
+    #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
+    pub session_expiration: u64,
+    /// Start the bot in maintenance mode, this will do nothing except telling
+    /// discord users that the bot is in maintenance mode
+    #[config(env = "CLNY_MAINTENANCE", default = false)]
+    pub maintenance: bool,
+    #[config(nested)]
+    pub observability: ObservabilityConfig,
+    /// The discord configuration
+    #[config(nested)]
+    pub discord: DiscordConfig,
+    /// The configuration of the https server used for the registration
+    #[config(nested)]
+    pub server: ServerConfig,
+    /// The configuration of the storage backend and encryption
+    #[config(nested)]
+    pub storage: StorageConfig,
+}
+
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct ObservabilityConfig {
+    /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
+    #[config(env = "CLNY_VERBOSITY", parse_env = parse_from_env::<LogLevel>, default = "Error")]
+    pub verbosity: LogLevel,
+    #[cfg(feature = "jaeger-telemetry")]
+    /// The jaeger endpoint to send the traces to
+    #[config(env = "CLNY_JAEGER_ENDPOINT", default = "127.0.0.1:6831")]
+    pub jaeger_endpoint: String,
+}
+
+/// The sub configuration for the http server
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct ServerConfig {
+    /// The base url under which the server is reachable
+    #[config(env = "CLNY_URL", default = "http://localhost:8080")]
+    pub url: String,
+    /// The address to listen on
+    #[config(env = "CLNY_HOST", default = "localhost")]
+    pub host: String,
+    /// The port to listen on
+    #[config(env = "CLNY_PORT", default = 8080)]
+    pub port: u16,
+}
+
+/// The sub configuration for storage and encryption
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct StorageConfig {
+    /// The path where the persistent data is stored
+    #[config(env = "CLNY_STORAGE_DIRECTORY", default = "./data")]
+    pub directory: PathBuf,
+    /// How to store data, on disk or in memory
+    #[config(env = "CLNY_STORAGE_TYPE",parse_env = parse_from_env::<StorageType>,  default = "Encrypted")]
+    pub storage_type: StorageType,
+    /// The encryption_key used to encrypt the stored data
+    #[config(env = "CLNY_ENCRYPTION_KEY")]
+    pub key: SecretString,
+}
+
+/// The sub configuration for discord interaction
+#[derive(Clone, Config, Debug, Deserialize)]
+pub struct DiscordConfig {
+    /// The discord bot token
+    #[config(env = "CLNY_DISCORD_TOKEN")]
+    pub token: SecretString,
+    /// The discor bot invitation url
+    #[config(env = "CLNY_DISCORD_INVITATION_URL")]
+    pub invite_url: String,
+}
+
 /// Partial configuration used to construct the final configuration
 type PartialConf = <GlobalConfig as Config>::Partial;
+
+/// Partial sub configuration of the observability sub configuration
+/// used as part of the enclosing partial configuration
 type PartialObservabilityConf = <ObservabilityConfig as Config>::Partial;
 /// Partial sub configuration of the server sub configuration
 /// used as part of the enclosing partial configuration
@@ -27,6 +108,119 @@ type PartialStorageConf = <StorageConfig as Config>::Partial;
 /// Partial sub configuration of the discord sub configuration
 /// used as part of the enclosing partial configuration
 type PartialDiscordConf = <DiscordConfig as Config>::Partial;
+
+struct PrintablePartialConf {
+    global: PartialConf,
+    observability: PrintablePartialObservabilityConf,
+    server: PrintablePartialServerConf,
+    storage: PrintablePartialStorageConf,
+    discord: PrintablePartialDiscordConf,
+}
+
+impl From<PartialConf> for PrintablePartialConf {
+    fn from(mut global: PartialConf) -> Self {
+        let observability = PrintablePartialObservabilityConf(std::mem::replace(
+            &mut global.observability,
+            PartialObservabilityConf::default_values(),
+        ));
+        let server = PrintablePartialServerConf(std::mem::replace(
+            &mut global.server,
+            PartialServerConf::default_values(),
+        ));
+        let storage = PrintablePartialStorageConf(std::mem::replace(
+            &mut global.storage,
+            PartialStorageConf::default_values(),
+        ));
+        let discord = PrintablePartialDiscordConf(std::mem::replace(
+            &mut global.discord,
+            PartialDiscordConf::default_values(),
+        ));
+        Self {
+            global,
+            observability,
+            server,
+            storage,
+            discord,
+        }
+    }
+}
+
+impl std::fmt::Debug for PrintablePartialConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "config_file", self.global.config_file));
+        s.push_str("\n");
+        s.push_str(&format!(
+            "{}: {:?}",
+            "session_expiration", self.global.session_expiration
+        ));
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "maintenance", self.global.maintenance));
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "observability", &self.observability));
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "discord", &self.discord));
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "server", &self.server));
+        s.push_str("\n");
+        s.push_str(&format!("{}: {:?}", "storage", &self.storage));
+        write!(f, "{}", s)
+    }
+}
+struct PrintablePartialObservabilityConf(PartialObservabilityConf);
+impl std::fmt::Debug for PrintablePartialObservabilityConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        s.push_str("\n");
+        s.push_str(&format!(" {}: {:?}", "verbosity", self.0.verbosity));
+        #[cfg(feature = "jaeger-telemetry")]
+        s.push_str("\n");
+        #[cfg(feature = "jaeger-telemetry")]
+        s.push_str(&format!(
+            " {}: {:?}",
+            "jaeger_endpoint", self.0.jaeger_endpoint
+        ));
+
+        write!(f, "{}", s)
+    }
+}
+
+struct PrintablePartialServerConf(PartialServerConf);
+impl std::fmt::Debug for PrintablePartialServerConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        s.push_str("\n");
+        s.push_str(&format!(" {}: {:?}", "url", self.0.url));
+        s.push_str("\n");
+        s.push_str(&format!(" {}: {:?}", "host", self.0.host));
+        s.push_str("\n");
+        s.push_str(&format!(" {}: {:?}", "port", self.0.port));
+
+        write!(f, "{}", s)
+    }
+}
+
+struct PrintablePartialStorageConf(PartialStorageConf);
+impl std::fmt::Debug for PrintablePartialStorageConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        s.push_str(&format!("\n {}: {:?}\n", "directory", self.0.directory));
+        s.push_str(&format!(" {}: {:?}\n", "storage_type", self.0.storage_type));
+        s.push_str(&format!(" {}: {:?}\n", "key", self.0.key));
+
+        write!(f, "{}", s)
+    }
+}
+
+struct PrintablePartialDiscordConf(PartialDiscordConf);
+impl std::fmt::Debug for PrintablePartialDiscordConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        s.push_str(&format!("\n {}: {:?}", "token", self.0.token));
+        write!(f, "{}", s)
+    }
+}
 
 /// Merges all configuration sources and initializes the global configuration
 ///
@@ -50,55 +244,43 @@ pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
 /// Prints the different sources and finally merged configuration to stdout
 pub fn print_config(raw_cli_cfg: &CliConfig) {
     let (cli_cfg, env, file, default, config_file) = get_config_hirarchy(&raw_cli_cfg);
-    let default_config =
-        GlobalConfig::from_partial(default).expect("Invalid default configuration");
-    println!("Default config: {:#?}", default_config);
-
-    if !env.is_empty() {
-        println!("\n\nEnvironment variables: ");
-        std::env::vars()
-            .filter_map(|(k, v)| {
-                if k.starts_with("CLNY_") {
-                    if k == "CLNY_ENCRYPTION_KEY" {
-                        return Some((k, "<redacted>".to_string()));
-                    }
-                    if k == "CLNY_DISCORD_TOKEN" {
-                        return Some((k, "<redacted>".to_string()));
-                    }
-                    Some((k, v))
-                } else {
-                    None
-                }
-            })
-            .for_each(|(k, v)| println!("{}={}", k, v));
-    }
-
-    if let Ok(file_content) = fs::read_to_string(&config_file) {
-        let token_re = Regex::new(r"(?m)^\s*token\s*=.*")
-            .expect("Invalid hardcoded regex, this should not happen");
-        let key_re = Regex::new(r"(?m)^\s*key\s*=.*")
-            .expect("Invalid hardcoded regex, this should not happen");
-        let without_token = token_re.replace_all(&file_content, "token = \"<redacted>\"");
-        let without_key = key_re.replace_all(&without_token, "key = \"<redacted>\"");
+    println!(
+        "\nThis is how the configuration was loaded from it's parts, \nif a partial \
+        config is completely empty, \nit will be omitted form the output"
+    );
+    println!(
+        "\n\nDefault partial config: {:#?}",
+        PrintablePartialConf::from(default)
+    );
+    if !file.is_empty() {
         println!(
-            "\n\nUsed config file: {}: \n{}",
-            config_file.display(),
-            without_key
+            "\n\nFile partial config from {:?}: {:#?}",
+            config_file,
+            PrintablePartialConf::from(file)
+        );
+    }
+    if !env.is_empty() {
+        println!(
+            "\n\nEnvironment parital config: {:#?}",
+            PrintablePartialConf::from(env)
+        );
+    }
+    if !cli_cfg.is_empty() {
+        println!(
+            "\n\nCLI partial config: {:#?}",
+            PrintablePartialConf::from(cli_cfg)
         );
     }
 
-    if !cli_cfg.is_empty() {
-        println!("\n\nCLI flags: {:#?}", raw_cli_cfg);
-    }
-
-    let default = PartialConf::default_values();
+    let (cli_cfg, env, file, default, _) = get_config_hirarchy(&raw_cli_cfg);
     let merged = cli_cfg
         .with_fallback(env)
         .with_fallback(file)
         .with_fallback(default);
+
     let cfg = GlobalConfig::from_partial(merged).expect("Invalid configuration");
 
-    println!("\n\nMerged config: {:#?}", cfg);
+    println!("\n\nMerged final config: {:#?}", cfg);
 }
 
 /// Gets all partial configurations from the different sources.
@@ -165,79 +347,41 @@ pub fn print_template() {
     );
 }
 
-/// The main configuration struct used by the entire application
-/// it is constructed from the partial configurations from different sources
-#[derive(Clone, Config, Debug, Deserialize)]
-pub struct GlobalConfig {
-    /// The path to the configuration file
-    #[config(env = "CLNY_CONFIG_FILE", default = "config.toml")]
-    pub config_file: PathBuf,
-    /// The time it takes for a session to expire in seconds
-    #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
-    pub session_expiration: u64,
-    /// Start the bot in maintenance mode, this will do nothing except telling
-    /// discord users that the bot is in maintenance mode
-    #[config(env = "CLNY_MAINTENANCE", default = false)]
-    pub maintenance: bool,
-    #[config(nested)]
-    pub observability: ObservabilityConfig,
-    /// The discord configuration
-    #[config(nested)]
-    pub discord: DiscordConfig,
-    /// The configuration of the https server used for the registration
-    #[config(nested)]
-    pub server: ServerConfig,
-    /// The configuration of the storage backend and encryption
-    #[config(nested)]
-    pub storage: StorageConfig,
+fn parse_from_env<T: FromStr<Err = String>>(s: &str) -> Result<T, ConfigFromEnvError> {
+    Ok(T::from_str(s)?)
 }
 
-#[derive(Clone, Config, Debug, Deserialize)]
-pub struct ObservabilityConfig {
-    /// The log level, can be one of: Off, Error, Warn, Info, Debug, Trace
-    #[config(env = "CLNY_VERBOSITY", default = "Error")]
-    pub verbosity: LogLevel,
-    #[cfg(feature = "jaeger-telemetry")]
-    /// The jaeger endpoint to send the traces to
-    #[config(env = "CLNY_JAEGER_ENDPOINT", default = "127.0.0.1:6831")]
-    pub jaeger_endpoint: String,
+#[derive(Debug)]
+struct ConfigFromEnvError(String);
+
+impl FromStr for ConfigFromEnvError {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ConfigFromEnvError(s.to_string()))
+    }
 }
 
-/// The sub configuration for the http server
-#[derive(Clone, Config, Debug, Deserialize)]
-pub struct ServerConfig {
-    /// The base url under which the server is reachable
-    #[config(env = "CLNY_URL", default = "http://localhost")]
-    pub url: String,
-    /// The address to listen on
-    #[config(env = "CLNY_HOST", default = "localhost")]
-    pub host: String,
-    /// The port to listen on
-    #[config(env = "CLNY_PORT", default = 8080)]
-    pub port: u16,
+impl From<String> for ConfigFromEnvError {
+    fn from(s: String) -> Self {
+        ConfigFromEnvError(s)
+    }
 }
 
-/// The sub configuration for storage and encryption
-#[derive(Clone, Config, Debug, Deserialize)]
-pub struct StorageConfig {
-    /// The path where the persistent data is stored
-    #[config(env = "CLNY_STORAGE_DIRECTORY", default = "./data")]
-    pub directory: PathBuf,
-    /// How to store data, on disk or in memory
-    #[config(env = "CLNY_STORAGE_TYPE", default = "Encrypted")]
-    pub storage_type: StorageType,
-    /// The encryption_key used to encrypt the stored data
-    #[config(env = "CLNY_ENCRYPTION_KEY", default = "")]
-    pub key: SecretString,
+impl std::fmt::Display for ConfigFromEnvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Error while reading config from environment {}", self.0)
+    }
 }
 
-/// The sub configuration for discord interaction
-#[derive(Clone, Config, Debug, Deserialize)]
-pub struct DiscordConfig {
-    /// The discord bot token
-    #[config(env = "CLNY_DISCORD_TOKEN", default = "")]
-    pub token: SecretString,
-    /// The discor bot invitation url
-    #[config(env = "CLNY_DISCORD_INVITATION_URL", default = "")]
-    pub invite_url: String,
+impl std::error::Error for ConfigFromEnvError {
+    fn description(&self) -> &str {
+        "Error while reading config from environment"
+    }
+}
+
+impl Default for StorageType {
+    fn default() -> Self {
+        Self::Encrypted
+    }
 }
