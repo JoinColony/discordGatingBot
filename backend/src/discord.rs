@@ -30,7 +30,7 @@ use serenity::{
     utils::MessageBuilder,
 };
 use std::{collections::HashMap, time::Duration};
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time};
 use tracing::{debug, error, info, info_span, instrument, warn, Instrument, Span};
 
 #[instrument(level = "debug")]
@@ -349,9 +349,10 @@ async fn add_gate(interaction: &ApplicationCommandInteraction, ctx: &Context) ->
         gate,
         span,
     };
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
     if let Err(why) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
@@ -397,16 +398,17 @@ async fn list_gates(interaction: &ApplicationCommandInteraction, ctx: &Context) 
         response: tx,
         span,
     };
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
         error!("Error sending message to controller: {:?}", err);
     }
 
-    let gates = rx.in_current_span().await?;
+    let gates = time::timeout(timeout, rx.in_current_span()).await??;
     debug!(?gates, "Received response from controller");
     if gates.is_empty() {
         respond(ctx, interaction, "No gates found", true)
@@ -473,9 +475,10 @@ async fn list_gates(interaction: &ApplicationCommandInteraction, ctx: &Context) 
                     gate: gate.clone(),
                     span,
                 };
+
                 if let Err(err) = CONTROLLER_CHANNEL
                     .wait()
-                    .send(message)
+                    .send_timeout(message, timeout)
                     .in_current_span()
                     .await
                 {
@@ -525,15 +528,16 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
         response: role_tx,
         span,
     };
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
         error!("Error sending message to controller: {:?}", err);
     }
-    let managed_roles = role_rx.in_current_span().await?;
+    let managed_roles = time::timeout(timeout, role_rx.in_current_span()).await??;
     debug!(?managed_roles, "Received response from controller");
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
     let members = ctx
@@ -573,7 +577,7 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
     };
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
@@ -587,6 +591,7 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
     respond(ctx, interaction, message, true)
         .in_current_span()
         .await?;
+    // TODO: We want to have a timout here, but it's ugly
     while let Some(response) = rx.recv().in_current_span().await {
         match response {
             BatchResponse::Grant { user_id, roles } => {
@@ -690,9 +695,10 @@ async fn get_in_check(interaction: &ApplicationCommandInteraction, ctx: &Context
         response_tx: tx,
         span,
     };
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
@@ -714,13 +720,7 @@ async fn get_in_check(interaction: &ApplicationCommandInteraction, ctx: &Context
     )
     .in_current_span()
     .await?;
-    let response = match rx.in_current_span().await {
-        Ok(repsonse) => repsonse,
-        Err(why) => {
-            error!("Error receiving response from controller: {:?}", why);
-            bail!("Error receiving response from controller: {:?}", why);
-        }
-    };
+    let response = time::timeout(timeout, rx.in_current_span()).await??;
     match response {
         CheckResponse::Grant(roles) => {
             grant_roles(ctx, interaction, &roles)
@@ -752,15 +752,16 @@ async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Cont
         response: role_tx,
         span,
     };
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
         error!("Error sending message to controller: {:?}", err);
     }
-    let roles = role_rx.in_current_span().await?;
+    let roles = time::timeout(timeout, role_rx.in_current_span()).await??;
     let span = info_span!("controller");
     let message = controller::Message::Unregister {
         user_id: user_id.into(),
@@ -771,13 +772,13 @@ async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Cont
     };
     if let Err(err) = CONTROLLER_CHANNEL
         .wait()
-        .send(message)
+        .send_timeout(message, timeout)
         .in_current_span()
         .await
     {
         error!("Error sending message to controller: {:?}", err);
     }
-    let response = rx.in_current_span().await?;
+    let response = time::timeout(timeout, rx.in_current_span()).await??;
     match response {
         UnRegisterResponse::NotRegistered => {
             respond(ctx, interaction, "You are not registered", true)
@@ -791,7 +792,7 @@ async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Cont
         }
         UnRegisterResponse::Error(why) => bail!("Error unregistering: {}", why),
     };
-    match removed_rx.in_current_span().await? {
+    match time::timeout(timeout, removed_rx.in_current_span()).await?? {
         RemoveUserResponse::Success => {
             let mut message = MessageBuilder::new();
             message.push("You have been removed from the following roles: ");

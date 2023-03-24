@@ -22,7 +22,7 @@ use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     sync::Mutex,
@@ -425,13 +425,14 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         for fut in check_futures {
             set.spawn(fut.in_current_span());
         }
+        let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
         while let Some(result) = set.join_next().in_current_span().await {
             let _enter = span.enter();
             match result {
                 Ok((user_id, roles)) => {
                     debug!(user_id, ?roles, "Batch result");
                     if let Err(why) = response_tx
-                        .send(BatchResponse::Grant { user_id, roles })
+                        .send_timeout(BatchResponse::Grant { user_id, roles }, timeout)
                         .in_current_span()
                         .await
                     {
@@ -445,7 +446,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         }
         debug!("Batch check complete, sending done");
         if let Err(why) = response_tx
-            .send(BatchResponse::Done)
+            .send_timeout(BatchResponse::Done, timeout)
             .in_current_span()
             .await
         {

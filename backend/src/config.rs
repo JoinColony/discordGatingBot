@@ -26,6 +26,9 @@ pub struct GlobalConfig {
     /// The time it takes for a session to expire in seconds
     #[config(env = "CLNY_SESSION_EXPIRATION", default = 60)]
     pub session_expiration: u64,
+    /// Timout used for internal requests in milliseconds
+    #[config(env = "CLNY_INTERNAL_TIMEOUT", default = 2000)]
+    pub internal_timeout: u64,
     /// Start the bot in maintenance mode, this will do nothing except telling
     /// discord users that the bot is in maintenance mode
     #[config(env = "CLNY_MAINTENANCE", default = false)]
@@ -154,6 +157,10 @@ impl std::fmt::Debug for PrintablePartialConf {
         s.push_str(&format!(
             "{}: {:?}",
             "session_expiration", self.global.session_expiration
+        ));
+        s.push_str(&format!(
+            "{}: {:?}",
+            "internal_timeout", self.global.internal_timeout
         ));
         s.push_str("\n");
         s.push_str(&format!("{}: {:?}", "maintenance", self.global.maintenance));
@@ -291,6 +298,8 @@ fn get_config_hirarchy(
     let cli_cfg = PartialConf {
         config_file: raw_cli_cfg.config_file.clone(),
         maintenance: raw_cli_cfg.maintenance,
+        session_expiration: raw_cli_cfg.session_expiration,
+        internal_timeout: raw_cli_cfg.internal_timeout,
         observability: PartialObservabilityConf {
             verbosity: match (
                 raw_cli_cfg.observability.verbose,
@@ -306,7 +315,6 @@ fn get_config_hirarchy(
             #[cfg(feature = "jaeger-telemetry")]
             jaeger_endpoint: raw_cli_cfg.observability.jaeger_endpoint.clone(),
         },
-        session_expiration: raw_cli_cfg.session_expiration,
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
             invite_url: raw_cli_cfg.discord.invite_url.clone(),

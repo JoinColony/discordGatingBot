@@ -12,8 +12,8 @@ use colony_rs::Signature;
 use sailfish::TemplateOnce;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use std::str::FromStr;
-use tokio::sync::oneshot;
+use std::{str::FromStr, time::Duration};
+use tokio::{sync::oneshot, time};
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use tracing_actix_web::TracingLogger;
 use urlencoding;
@@ -115,11 +115,17 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
         response_tx,
         span,
     };
-    if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
+    if let Err(why) = CONTROLLER_CHANNEL
+        .wait()
+        .send_timeout(message, timeout)
+        .await
+    {
         error!("Error sending message to controller: {}", why);
         return Skeleton::internal_error();
     }
-    if let Ok(response) = rx.await {
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
+    if let Ok(Ok(response)) = time::timeout(timeout, rx).await {
         match response {
             RegisterResponse::Success => {
                 debug!("Registration successful");
@@ -175,11 +181,16 @@ async fn unregister(path: web::Path<(String, String)>) -> impl Responder {
         response_tx: tx,
         span,
     };
-    if let Err(why) = CONTROLLER_CHANNEL.wait().send(message).await {
+    let timeout = Duration::from_millis(CONFIG.wait().internal_timeout);
+    if let Err(why) = CONTROLLER_CHANNEL
+        .wait()
+        .send_timeout(message, timeout)
+        .await
+    {
         error!("Error sending message to controller: {}", why);
         return Skeleton::internal_error();
     }
-    if let Ok(response) = rx.await {
+    if let Ok(Ok(response)) = time::timeout(timeout, rx).await {
         match response {
             RemoveUserResponse::Success => {
                 debug!("Unregistration successful");

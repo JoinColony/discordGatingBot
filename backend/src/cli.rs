@@ -243,6 +243,8 @@ pub struct CliConfig {
     /// The time it takes for a session to expire in seconds
     #[clap(long, short, global(true))]
     pub session_expiration: Option<u64>,
+    #[clap(long, global(true))]
+    pub internal_timeout: Option<u64>,
     /// Start the bot in maintenance mode, this will do nothing except telling
     /// discord users that the bot is in maintenance mode. This allows
     /// manipulating the storage in the meantime
