@@ -1,0 +1,18 @@
+comment:
+  layout: "files"
+  require_changes: true
+
+# ref: https://docs.codecov.com/docs/codecovyml-reference
+coverage:
+  precision: 1
+  range: 85..100
+  round: down
+  status:
+    # ref: https://docs.codecov.com/docs/commit-status
+    project:
+      default:
+        # Avoid false negatives
+        threshold: 1%
+ignore:
+- "tests"
+

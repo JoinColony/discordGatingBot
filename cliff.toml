@@ -1,0 +1,86 @@
+# configuration file for git-cliff
+# see https://github.com/orhun/git-cliff#configuration-file
+
+[changelog]
+# changelog header
+header = """
+# Changelog\n
+
+Here we keep track of notable changes to the project.
+"""
+# template for the changelog body
+# https://tera.netlify.app/docs/#introduction
+# - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}
+body = """
+{% if version %}\
+    ## v{{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+    - {% if group == "Breaking" %}**{% endif %}{{- commit.message | replace(from=commit.scope,to="") | trim | upper_first }}{% if group == "Breaking" %}**{% endif %}
+    {% endfor %}
+{% endfor %}\n
+"""
+# remove the leading and trailing whitespace from the template
+trim = true
+# changelog footer
+footer = """
+"""
+
+[git]
+# parse the commits based on https://www.conventionalcommits.org
+conventional_commits = false
+# filter out the commits that are not conventional
+filter_unconventional = false
+# process each line of a commit as an individual commit
+split_commits = true
+# regex for preprocessing the commit messages
+commit_preprocessors = [
+    # { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](https://github.com/orhun/git-cliff/issues/${2}))"}, # replace issue numbers
+]
+commit_parsers = [
+    { message = "^add:", group = "Features", scope = "add:" },
+    { message = "^feat:", group = "Features", scope = "feat:" },
+    { message = "^feature:", group = "Features", scope = "feature:" },
+    { message = "^depr:", group = "Deprecation", scope = "depr:" },
+    { message = "^deprecates:", group = "Deprecations", scope = "deprecates:" },
+    { message = "^rm:", group = "Removal", scope = "rm:" },
+    { message = "^rem:", group = "Removal", scope = "rem:" },
+    { message = "^remove:", group = "Removal", scope = "remove:" },
+    { message = "^doc:", group = "Documentation", scope = "doc" },
+    { message = "^docs:", group = "Documentation", scope = "docs" },
+    { message = "^style:", group = "Styling", scope = "style:" },
+    { message = "^documentation:", group = "Documentation", scope = "documentation:" },
+    { message = "^bug:", group = "Fixes", scope = "bug:" },
+    { message = "^bugfix:", group = "Fixes", scope = "bugfix:" },
+    { message = "^fix:", group = "Fixes", scope = "fix:" },
+    { message = "^fixes:", group = "Fixes", scope = "fixes:" },
+    { message = "^Fixes:", group = "Fixes", scope = "Fixes:" },
+    { message = "^fixes #", group = "Fixes", scope = "fixes #" },
+    { message = "^Fixes #", group = "Fixes", scope = "Fixes #" },
+    { message = "^perf:", group = "Performance", scope = "perf:" },
+    { message = "^performance:", group = "Performance", scope = "performance:" },
+    { message = "^sec:", group = "Security", scope = "sec:" },
+    { message = "^security:", group = "Security", scope = "security:" },
+    { message = "^break:", group = "Breaking", scope = "break:" },
+    { message = "^BREAKING CHANGE:", group = "Breaking", scope = "BREAKING CHANGE:" },
+] # regex for parsing and grouping commits
+# protect breaking changes from being skipped due to matching a skipping commit_parser
+protect_breaking_commits = false
+# filter out the commits that are not matched by commit parsers
+filter_commits = false
+# glob pattern for matching git tags
+tag_pattern = "v[0-9]*"
+# regex for skipping tags
+skip_tags = "v0.1.0-beta.1"
+# regex for ignoring tags
+ignore_tags = ""
+# sort the tags topologically
+topo_order = false
+# sort the commits inside sections by oldest/newest order
+sort_commits = "oldest"
+# limit the number of commits included in the changelog.
+# limit_commits = 42
