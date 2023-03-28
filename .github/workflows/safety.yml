@@ -7,9 +7,6 @@ on:
 name: safety
 jobs:
   sanitizers:
-    defaults:
-      run:
-        working-directory: ./backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -51,9 +48,6 @@ jobs:
           LSAN_OPTIONS: "suppressions=lsan-suppressions.txt"
           RUSTFLAGS: "-Z sanitizer=thread"
   miri:
-    defaults:
-      run:
-        working-directory: ./backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -71,9 +65,6 @@ jobs:
         env:
           MIRIFLAGS: ""
   loom:
-    defaults:
-      run:
-        working-directory: ./backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
