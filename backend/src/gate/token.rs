@@ -36,31 +36,30 @@ impl GatingCondition for TokenGate {
     }
 
     fn options() -> Vec<GateOption> {
-        let mut options = Vec::with_capacity(2);
-
-        options.push(GateOption {
-            name: &"token_address",
-            description: &"The token address on the gnosis chain",
-            required: true,
-            option_type: GateOptionType::String {
-                min_length: Some(42),
-                max_length: Some(42),
+        vec![
+            GateOption {
+                name: "token_address",
+                description: "The token address on the gnosis chain",
+                required: true,
+                option_type: GateOptionType::String {
+                    min_length: Some(42),
+                    max_length: Some(42),
+                },
             },
-        });
-        options.push(GateOption {
-            name: &"amount",
-            description: &"The amount of the token",
-            required: true,
-            option_type: GateOptionType::I64 {
-                min: Some(1),
-                max: None,
+            GateOption {
+                name: "amount",
+                description: "The amount of the token",
+                required: true,
+                option_type: GateOptionType::I64 {
+                    min: Some(1),
+                    max: None,
+                },
             },
-        });
-        options
+        ]
     }
 
     #[instrument(level = "debug")]
-    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+    async fn from_options(options: &[GateOptionValue]) -> Result<Box<Self>> {
         debug!("Creating token gate from options");
         if options.len() != 2 {
             bail!("Need exactly 2 options");

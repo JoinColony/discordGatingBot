@@ -66,7 +66,7 @@ pub async fn register_guild_slash_commands(guild_id: u64) {
     info!("Registering slash commands for guild");
     let token = &CONFIG.wait().discord.token.expose_secret();
     let guild_id = GuildId(guild_id);
-    let http = Http::new(&token);
+    let http = Http::new(token);
     let resp = http
         .get_current_application_info()
         .in_current_span()
@@ -92,7 +92,7 @@ pub async fn delete_guild_slash_commands(guild_id: u64) {
     info!("Deleting slash commands for guild");
     let token = &CONFIG.wait().discord.token.expose_secret();
     let guild_id = GuildId(guild_id);
-    let http = Http::new(&token);
+    let http = Http::new(token);
     let resp = http
         .get_current_application_info()
         .in_current_span()
@@ -121,7 +121,7 @@ pub async fn delete_guild_slash_commands(guild_id: u64) {
 pub async fn register_global_slash_commands() {
     info!("Registering slash commands globally");
     let token = &CONFIG.wait().discord.token.expose_secret();
-    let http = Http::new(&token);
+    let http = Http::new(token);
     let resp = http
         .get_current_application_info()
         .in_current_span()
@@ -148,7 +148,7 @@ pub async fn register_global_slash_commands() {
 pub async fn delete_global_slash_commands() {
     info!("Deleting slash commands globally");
     let token = &CONFIG.wait().discord.token.expose_secret();
-    let http = Http::new(&token);
+    let http = Http::new(token);
     let resp = http
         .get_current_application_info()
         .in_current_span()
@@ -197,15 +197,15 @@ impl EventHandler for MaintenanceHandler {
                 let user_id = command.user.id;
                 let guild_id = command.guild_id.unwrap_or(0.into());
                 let interaction_id = command.id;
-                Span::current().record("guild_id", &guild_id.as_u64());
-                Span::current().record("username", &user_name);
-                Span::current().record("user_id", &user_id.as_u64());
-                Span::current().record("command", &command_name);
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("guild_id", guild_id.as_u64());
+                Span::current().record("username", user_name);
+                Span::current().record("user_id", user_id.as_u64());
+                Span::current().record("command", command_name);
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Start handling command interaction");
                 if let Err(why) = respond(
                     &ctx,
-                    &command,
+                    command,
                     "⚠️⚠️⚠️  The bot is currently in maintenance mode, and will be back soon",
                     true,
                 )
@@ -243,15 +243,15 @@ impl EventHandler for Handler {
                 let user_id = command.user.id;
                 let guild_id = command.guild_id.unwrap_or(0.into());
                 let interaction_id = command.id;
-                Span::current().record("guild_id", &guild_id.as_u64());
-                Span::current().record("username", &user_name);
-                Span::current().record("user_id", &user_id.as_u64());
-                Span::current().record("command", &command_name);
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("guild_id", guild_id.as_u64());
+                Span::current().record("username", user_name);
+                Span::current().record("user_id", user_id.as_u64());
+                Span::current().record("command", command_name);
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Start handling command interaction");
                 let interaction_response = match command_name {
-                    "gate" => gate_interaction(&command, &ctx).in_current_span().await,
-                    "get" => get_interaction(&command, &ctx).in_current_span().await,
+                    "gate" => gate_interaction(command, &ctx).in_current_span().await,
+                    "get" => get_interaction(command, &ctx).in_current_span().await,
                     _ => {
                         error!("Unknown command: {}", command.data.name);
                         return;
@@ -263,7 +263,7 @@ impl EventHandler for Handler {
                         .push("⚠️⚠️⚠️  An error happened while processing your command: ")
                         .push_mono(why.to_string())
                         .build();
-                    if let Err(why) = respond(&ctx, &command, message, true)
+                    if let Err(why) = respond(&ctx, command, message, true)
                         .in_current_span()
                         .await
                     {
@@ -274,22 +274,22 @@ impl EventHandler for Handler {
 
             Interaction::MessageComponent(interaction) => {
                 let interaction_id = interaction.id;
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Got message component interaction");
             }
             Interaction::Ping(interaction) => {
                 let interaction_id = interaction.id;
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Got ping interaction");
             }
             Interaction::Autocomplete(interaction) => {
                 let interaction_id = interaction.id;
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Got autocomplete interaction");
             }
             Interaction::ModalSubmit(interaction) => {
                 let interaction_id = interaction.id;
-                Span::current().record("interaction_id", &interaction_id.as_u64());
+                Span::current().record("interaction_id", interaction_id.as_u64());
                 debug!("Got modal submit interaction");
             }
         }
@@ -303,12 +303,12 @@ async fn gate_interaction(
     ctx: &Context,
 ) -> Result<()> {
     let option = &interaction.data.options[0];
-    Span::current().record("option", &option.name.as_str());
+    Span::current().record("option", option.name.as_str());
     debug!("Handling gate command");
     match option.name.as_str() {
-        "add" => Ok(add_gate(&interaction, &ctx).in_current_span().await?),
-        "list" => Ok(list_gates(&interaction, &ctx).in_current_span().await?),
-        "enforce" => Ok(enforce_gates(&interaction, &ctx).in_current_span().await?),
+        "add" => Ok(add_gate(interaction, ctx).in_current_span().await?),
+        "list" => Ok(list_gates(interaction, ctx).in_current_span().await?),
+        "enforce" => Ok(enforce_gates(interaction, ctx).in_current_span().await?),
         _ => Err(anyhow!("Unknown gate subcommand")),
     }
 }
@@ -316,11 +316,11 @@ async fn gate_interaction(
 #[instrument(level = "info", skip(ctx, interaction), fields(option))]
 async fn get_interaction(interaction: &ApplicationCommandInteraction, ctx: &Context) -> Result<()> {
     let option = &interaction.data.options[0];
-    Span::current().record("option", &option.name.as_str());
+    Span::current().record("option", option.name.as_str());
     debug!("Handling get command");
     match option.name.as_str() {
-        "in" => get_in_check(&interaction, &ctx).in_current_span().await,
-        "out" => get_out_request(&interaction, &ctx).in_current_span().await,
+        "in" => get_in_check(interaction, ctx).in_current_span().await,
+        "out" => get_out_request(interaction, ctx).in_current_span().await,
         _ => Err(anyhow!("Unknown get subcommand")),
     }
 }
@@ -363,7 +363,7 @@ async fn add_gate(interaction: &ApplicationCommandInteraction, ctx: &Context) ->
     content.push_line(" is now being gated!");
     if !is_below_bot_in_hierarchy(
         role_position,
-        &ctx,
+        ctx,
         guild_id,
         interaction.application_id.into(),
     )
@@ -456,7 +456,7 @@ async fn list_gates(interaction: &ApplicationCommandInteraction, ctx: &Context) 
                 }
             };
             let mut reaction_stream = follow_up
-                .await_component_interactions(&ctx)
+                .await_component_interactions(ctx)
                 .timeout(Duration::from_secs(15))
                 .build();
             while let Some(interaction) = reaction_stream.next().in_current_span().await {
@@ -543,13 +543,13 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
         .await?;
     let user_ids = members
         .iter()
-        .map(|m| m.user.id.as_u64().clone())
+        .map(|m| *m.user.id.as_u64())
         .collect::<Vec<_>>();
     let member_map = members
         .into_iter()
         .map(|m| {
             (
-                m.user.id.as_u64().clone(),
+                *m.user.id.as_u64(),
                 m.roles
                     .iter()
                     .filter_map(|&r| {
@@ -614,7 +614,7 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
                 for role in gained_roles.clone() {
                     if let Err(why) = ctx
                         .http
-                        .add_member_role(guild_id.into(), user_id.into(), *role, None)
+                        .add_member_role(guild_id.into(), user_id, *role, None)
                         .in_current_span()
                         .await
                     {
@@ -625,7 +625,7 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
                 for role in lost_roles.clone() {
                     if let Err(why) = ctx
                         .http
-                        .remove_member_role(guild_id.into(), user_id.into(), *role, None)
+                        .remove_member_role(guild_id.into(), user_id, *role, None)
                         .in_current_span()
                         .await
                     {
@@ -663,14 +663,14 @@ async fn enforce_gates(interaction: &ApplicationCommandInteraction, ctx: &Contex
                     }
                 }
                 message.build();
-                follow_up(&ctx, interaction, message, true)
+                follow_up(ctx, interaction, message, true)
                     .in_current_span()
                     .await?;
             }
             BatchResponse::Done => break,
         }
     }
-    follow_up(&ctx, interaction, "Finished enforcement of gates", true)
+    follow_up(ctx, interaction, "Finished enforcement of gates", true)
         .in_current_span()
         .await
 }
@@ -706,7 +706,7 @@ async fn get_in_check(interaction: &ApplicationCommandInteraction, ctx: &Context
         .in_current_span()
         .await?;
     follow_up(
-        &ctx,
+        ctx,
         interaction,
         "Checking your reputation in the colonies,\
               this might take a while...",
@@ -808,7 +808,7 @@ async fn get_out_request(interaction: &ApplicationCommandInteraction, ctx: &Cont
                 message.role(*role);
             }
             message.build();
-            follow_up(&ctx, interaction, message, true)
+            follow_up(ctx, interaction, message, true)
                 .in_current_span()
                 .await
         }

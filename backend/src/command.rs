@@ -15,7 +15,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use secrecy::ExposeSecret;
-use tokio;
+
 use tracing::{info, warn};
 
 /// Chooses the appropriate actions based on the Commands enum
@@ -256,11 +256,11 @@ pub fn execute(cli: &Cli) {
             let controller: Controller<SledEncryptedStorage> = Controller::new();
             let wallet = controller
                 .storage
-                .get_user(&user_id)
+                .get_user(user_id)
                 .expect("Failed to get user");
             let gates = controller
                 .storage
-                .list_gates(&guild_id)
+                .list_gates(guild_id)
                 .expect("Failed to list gates");
             let roles = rt.block_on(controller::check_with_wallet(wallet, gates));
             println!("Roles: {:?}", roles);

@@ -41,7 +41,7 @@ macro_rules! gates {
 
     (@constructor: $($gate:ident),*) => {
         {
-            async fn construct(gate_type: &str, options: &Vec<GateOptionValue>) -> Result<Box<dyn $crate::gate::GatingCondition>> {
+            async fn construct(gate_type: &str, options: &[GateOptionValue]) -> Result<Box<dyn $crate::gate::GatingCondition>> {
                 $(
                     if $crate::gate::$gate::name() == gate_type {
                         return Ok($crate::gate::$gate::from_options(options).await? as Box<dyn $crate::gate::GatingCondition>);
@@ -67,11 +67,7 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub async fn new(
-        role_id: u64,
-        gate_type: &str,
-        options: &Vec<GateOptionValue>,
-    ) -> Result<Self> {
+    pub async fn new(role_id: u64, gate_type: &str, options: &[GateOptionValue]) -> Result<Self> {
         let condition = gates!(constructor)(gate_type, options).await?;
         Ok(Self { role_id, condition })
     }
@@ -117,7 +113,7 @@ pub trait GatingCondition: std::fmt::Debug + Send + Sync + DynClone {
     fn options() -> Vec<GateOption>
     where
         Self: Sized;
-    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>>
+    async fn from_options(options: &[GateOptionValue]) -> Result<Box<Self>>
     where
         Self: Sized;
     async fn check(&self, wallet_address: H160) -> bool;

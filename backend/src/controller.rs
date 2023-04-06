@@ -15,7 +15,7 @@ use chacha20poly1305::{
 };
 use colony_rs::H160;
 use futures::FutureExt;
-use hex;
+
 use once_cell::sync::OnceCell;
 use secrecy::{ExposeSecret, SecretString};
 use std::{
@@ -30,7 +30,7 @@ use tokio::{
     task::JoinSet,
 };
 use tracing::{debug, error, info, info_span, instrument, Instrument, Span};
-use urlencoding;
+
 
 /// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
@@ -406,7 +406,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                 Ok(wallet) => Some((user_id, wallet)),
                 Err(why) => {
                     error!("Failed to get user: {:?}", why);
-                    return None;
+                    None
                 }
             })
             .filter_map(
@@ -470,17 +470,13 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     why
                 );
             };
-        } else {
-            if let Err(why) = self.storage.add_user(user_id, wallet) {
-                error!("Failed to add user: {:?}", why);
-                if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
-                    error!("Failed to send RegisterResponse::Error: {:?}", why);
-                };
-            } else {
-                if let Err(why) = response_tx.send(RegisterResponse::Success) {
-                    error!("Failed to send RegisterResponse::Success: {:?}", why);
-                };
-            }
+        } else if let Err(why) = self.storage.add_user(user_id, wallet) {
+            error!("Failed to add user: {:?}", why);
+            if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
+                error!("Failed to send RegisterResponse::Error: {:?}", why);
+            };
+        } else if let Err(why) = response_tx.send(RegisterResponse::Success) {
+            error!("Failed to send RegisterResponse::Success: {:?}", why);
         }
     }
 
@@ -619,7 +615,7 @@ pub async fn check_with_wallet(
     gates: impl Iterator<Item = Gate>,
 ) -> Vec<u64> {
     debug!("Checking with the user's wallet");
-    let wallet = match H160::from_str(&wallet.expose_secret()) {
+    let wallet = match H160::from_str(wallet.expose_secret()) {
         Ok(wallet) => wallet,
         Err(why) => {
             error!("Invalid wallet address: {:?}:{:?}", wallet, why);
@@ -689,7 +685,7 @@ impl Session {
 
         let plaintext = plaintext_str.as_bytes();
         let key_bytes = SESSION_KEY.wait();
-        let key = GenericArray::from_slice(&key_bytes);
+        let key = GenericArray::from_slice(key_bytes);
 
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
@@ -706,7 +702,7 @@ impl FromStr for Session {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
         let key_bytes = SESSION_KEY.wait();
-        let key = GenericArray::from_slice(&key_bytes);
+        let key = GenericArray::from_slice(key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let uri_parts: Vec<_> = s.split('.').collect();
         if uri_parts.len() != 2 {
@@ -716,7 +712,7 @@ impl FromStr for Session {
         let nonce = GenericArray::from_slice(&nonce_bytes);
 
         let ciphertext = hex::decode(uri_parts[1])?;
-        let plaintext = if let Ok(plaintext) = cipher.decrypt(&nonce, ciphertext.as_slice()) {
+        let plaintext = if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext.as_slice()) {
             plaintext
         } else {
             bail!("Invalid Uri: could not decrypt");

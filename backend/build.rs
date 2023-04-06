@@ -49,7 +49,7 @@ fn build_frontend() {
 // render readme
 fn render_readme() {
     process::Command::new("cargo")
-        .args(&["readme", "-o", "README.md"])
+        .args(["readme", "-o", "README.md"])
         .output()
         .expect("Failed to execute cargo readme");
 }
@@ -63,7 +63,7 @@ fn render_manpage_for_command(
     let mut file_name = String::new();
     if let Some(parent) = parent {
         file_name.push_str(parent);
-        file_name.push_str("-");
+        file_name.push('-');
     }
     file_name.push_str(command.get_name());
     file_name.push_str(".1");

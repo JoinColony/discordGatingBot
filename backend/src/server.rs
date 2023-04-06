@@ -16,10 +16,10 @@ use std::str::FromStr;
 use tokio::sync::oneshot;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use tracing_actix_web::TracingLogger;
-use urlencoding;
 
-static SIGN_SCRIPT: &'static str = include_str!("../../frontend/dist/index.js");
-static FAVICON: &'static [u8] = include_bytes!("../static/favicon.ico");
+
+static SIGN_SCRIPT: &str = include_str!("../../frontend/dist/index.js");
+static FAVICON: &[u8] = include_bytes!("../static/favicon.ico");
 
 const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your \
                                     Discord username {username} with your wallet \
@@ -123,15 +123,15 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
         match response {
             RegisterResponse::Success => {
                 debug!("Registration successful");
-                return Skeleton::register_success();
+                Skeleton::register_success()
             }
             RegisterResponse::AlreadyRegistered => {
                 debug!("User already registered");
-                return Skeleton::already_registered();
+                Skeleton::already_registered()
             }
             RegisterResponse::Error(why) => {
                 warn!("Internal registration error: {}", why);
-                return Skeleton::internal_error();
+                Skeleton::internal_error()
             }
         }
     } else {
@@ -208,7 +208,7 @@ fn validate_signature(
         .replace("{session}", session_str);
     debug!(?message, "Message to verify");
     let wallet = colony_rs::Address::from_str(data.address.expose_secret())?;
-    if let Err(why) = signature.verify(message.clone(), wallet) {
+    if let Err(why) = signature.verify(message, wallet) {
         warn!("Invalid message: {}", why);
         bail!("Invalid message");
     }
@@ -217,12 +217,12 @@ fn validate_signature(
 
 #[instrument]
 fn validate_session(username_url: &str, session_str: &str) -> Result<Session> {
-    let session = Session::from_str(&session_str)?;
+    let session = Session::from_str(session_str)?;
     if session.expired() {
         debug!("Session expired");
         bail!("Session expired");
     }
-    let username = urlencoding::decode(&username_url)?;
+    let username = urlencoding::decode(username_url)?;
 
     if username != session.username {
         warn!(

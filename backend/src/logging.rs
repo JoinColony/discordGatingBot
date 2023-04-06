@@ -84,8 +84,10 @@ pub fn setup_logging() {
 
 /// The different log levels, from quiet = 0 to trace = 5
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LogLevel {
     Off = 0,
+    #[default]
     Error = 1,
     Warn = 2,
     Info = 3,
@@ -142,11 +144,7 @@ impl LogLevel {
     }
 }
 
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Error
-    }
-}
+
 
 impl std::fmt::Display for LogLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
