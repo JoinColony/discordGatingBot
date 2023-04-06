@@ -36,7 +36,7 @@ jobs:
       - name: cargo-bloat
         run: |
           BINARY_PACKAGE=$(cargo metadata --no-deps  |  jq -r '.packages[] | select( .targets[] | select(.kind[] | contains("bin"))) | .name')
-          cargo bloat -p $BINARY_PACKAGE --crates  --message-format json > bloat.json
+          cargo bloat -p $BINARY_PACKAGE --release --crates  --message-format json > bloat.json
           if test -f last/bloat.json; then
             last_size="last size: $(printf "%0.4f MB" $(bc -l <<< $(jq -r '."file-size"' last/bloat.json)/1000000))"
           fi
