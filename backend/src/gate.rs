@@ -203,29 +203,41 @@ mod tests {
         });
         options.push(GateOptionValue {
             name: "reputation".to_string(),
-            value: GateOptionValueType::I64(0),
+            value: GateOptionValueType::F64(0.1),
         });
         let gate = Gate::new(1, "reputation", &options).await.unwrap();
         assert_eq!(gate.role_id, 1);
         let fields = gate.condition.fields();
-        let colony = if let GateOptionValueType::String(value) = &fields[0].value {
+        let chain_id = if let GateOptionValueType::String(value) = &fields[0].value {
             value
         } else {
             panic!("Invalid option type");
         };
-        assert_eq!(colony, "0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3");
-        let domain = if let GateOptionValueType::I64(value) = &fields[1].value {
+        assert_eq!(chain_id, "0x64");
+        let colony = if let GateOptionValueType::String(value) = &fields[1].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(colony, "0xcfd3aa1ebc6119d80ed47955a87a9d9c281a97b3");
+        let colony_name = if let GateOptionValueType::String(value) = &fields[2].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(colony_name, "\"meta.colony.joincolony.colonyxdai\"");
+        let domain = if let GateOptionValueType::I64(value) = &fields[3].value {
             value
         } else {
             panic!("Invalid option type");
         };
         assert_eq!(*domain, 1);
-        let reputation = if let GateOptionValueType::I64(value) = &fields[2].value {
+        let reputation = if let GateOptionValueType::F64(value) = &fields[4].value {
             value
         } else {
             panic!("Invalid option type");
         };
-        assert_eq!(*reputation, 0);
+        assert_eq!(*reputation, 0.1);
     }
 
     #[tokio::test]
@@ -234,7 +246,7 @@ mod tests {
         options.push(GateOptionValue {
             name: "token_address".to_string(),
             value: GateOptionValueType::String(
-                "0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3".to_string(),
+                "0xc9B6218AffE8Aba68a13899Cbf7cF7f14DDd304C".to_string(),
             ),
         });
         options.push(GateOptionValue {
@@ -244,13 +256,25 @@ mod tests {
         let gate = Gate::new(1, "token", &options).await.unwrap();
         assert_eq!(gate.role_id, 1);
         let fields = gate.condition.fields();
-        let address = if let GateOptionValueType::String(value) = &fields[0].value {
+        let chain_id = if let GateOptionValueType::String(value) = &fields[0].value {
             value
         } else {
             panic!("Invalid option type");
         };
-        assert_eq!(address, "0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3");
-        let amount = if let GateOptionValueType::I64(value) = &fields[1].value {
+        assert_eq!(chain_id, "0x64");
+        let address = if let GateOptionValueType::String(value) = &fields[1].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(address, "0xc9b6218affe8aba68a13899cbf7cf7f14ddd304c");
+        let symbol = if let GateOptionValueType::String(value) = &fields[2].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(symbol, "\"CLNY\"");
+        let amount = if let GateOptionValueType::I64(value) = &fields[3].value {
             value
         } else {
             panic!("Invalid option type");
