@@ -14,12 +14,6 @@ use cli::*;
 fn main() {
     // we only want to do the heavy lifting on release builds
     if Ok("release".to_owned()) == env::var("PROFILE") {
-        // tagging the git repo with the version from cargo if the tag doesn't
-        // already exist
-        if !get_git_tags().contains(&env!("CARGO_PKG_VERSION").to_string()) {
-            tag_git_repo();
-        }
-
         //parsing the cli for generation tasks
         let cli = Cli::command();
         // generating the man pages in a folder in the manifest directory
@@ -58,32 +52,6 @@ fn render_readme() {
         .args(&["readme", "-o", "README.md"])
         .output()
         .expect("Failed to execute cargo readme");
-}
-
-// tagging the git repo with the version from cargo
-fn tag_git_repo() {
-    let output = process::Command::new("git")
-        .args(&[
-            "tag",
-            "-s",
-            "-m",
-            concat!("new version: ", env!("CARGO_PKG_VERSION")),
-            env!("CARGO_PKG_VERSION"),
-        ])
-        .output()
-        .expect("Failed to execute git tag");
-    let git_tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    println!("{}", git_tag);
-}
-
-// get the git tags of the current repo from the git command line
-fn get_git_tags() -> Vec<String> {
-    let output = process::Command::new("git")
-        .args(&["tag", "-l"])
-        .output()
-        .expect("Failed to execute git rev-parse");
-    let git_tags = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    git_tags.split("\n").map(|s| s.to_string()).collect()
 }
 
 /// renders the the manpage for the given command
