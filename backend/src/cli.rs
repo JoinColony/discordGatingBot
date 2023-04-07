@@ -2,9 +2,9 @@
 //!
 //! Additional commands can be added via the `Commands` enum
 //!
-use clap::Args;
 use clap::{
-    crate_authors, crate_description, crate_name, crate_version, Parser, Subcommand, ValueHint,
+    crate_authors, crate_description, crate_name, crate_version, Args, Parser, Subcommand,
+    ValueHint,
 };
 use once_cell::sync::Lazy;
 use secrecy::SecretString;
@@ -29,7 +29,7 @@ static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
 /// `Cli` is the main struct for the cli parser, it contains the gloabl flags
 /// and the `Commands` enum with all subcommands
 #[derive(Debug, Parser)]
-#[clap(
+#[command(
     name = crate_name!(),
     author = crate_authors!("\n"),
     version = crate_version!(),
@@ -40,16 +40,16 @@ static LONG_DESCRIPTION: Lazy<String> = Lazy::new(|| {
 pub struct Cli {
     /// The main configuration params live here and can be set with command line
     /// flags
-    #[clap(flatten)]
+    #[command(flatten)]
     pub cfg: CliConfig,
     /// The subcommand to run
-    #[clap(subcommand)]
+    #[command(subcommand)]
     pub cmd: Option<Commands>,
 }
 
 /// The commands enum contains all sub commands and their respective arguments
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum Commands {
     /// Print the configuration and get a template file
     #[clap(subcommand)]
@@ -80,7 +80,7 @@ pub enum Commands {
 
 /// Represents the config sub command, used to print the current config or get a template
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum ConfigCmd {
     /// Print the configuration sources and merged config
     Show,
@@ -90,7 +90,7 @@ pub enum ConfigCmd {
 
 /// Represents the slashcommands sub command, used to register and delete slash commands
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum SlashCommands {
     /// Register the global slash commands
     #[clap(subcommand)]
@@ -103,7 +103,7 @@ pub enum SlashCommands {
 /// represents the discord sub command, used to register slash commands in
 /// a specific guild or globally
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum RegisterCmd {
     /// Register the global slash commands
     Global,
@@ -118,7 +118,7 @@ pub enum RegisterCmd {
 /// represents the discord sub command, used to delete slash commands in
 /// a specific guild or globally
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum DeleteCmd {
     /// Delete the global slash commands
     Global,
@@ -136,45 +136,45 @@ pub enum DeleteCmd {
 /// Be careful, these commands are able to alter data in the storage_type
 /// and also expose secretes to the console, especially the user commands
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum StorageCmd {
     /// Generates a new key than can be used for encryption at rest
     Generate,
     /// List or delete discord guilds in the db
-    #[clap(subcommand)]
+    #[command(subcommand)]
     Guild(GuildCmd),
-    #[clap(subcommand)]
+    #[command(subcommand)]
     /// List, add or delete discord users in the db
     User(UserCmd),
-    #[clap(subcommand)]
+    #[command(subcommand)]
     /// List, add or delete discord role gates in the db
     Gate(GateCmd),
 }
 
 /// Represents the user sub command, used to interact with the user storage
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum GuildCmd {
     /// List all guilds
     List {
         /// Starting index of the listed entries
-        #[clap(value_hint = ValueHint::Other, default_value = "0")]
+        #[arg(value_hint = ValueHint::Other, default_value = "0")]
         start: u64,
         /// End index of the listed entries
-        #[clap(value_hint = ValueHint::Other, default_value = "100")]
+        #[arg(value_hint = ValueHint::Other, default_value = "100")]
         end: u64,
     },
     /// Remove a guild
     Remove {
         /// The discord guild id to delete
-        #[clap(value_hint = ValueHint::Other)]
+        #[arg(value_hint = ValueHint::Other)]
         guild_id: u64,
     },
 }
 
 /// Represents the user sub command, used to interact with the user storage
 #[derive(Debug, Subcommand)]
-#[clap()]
+#[command()]
 pub enum UserCmd {
     /// List all users with their wallet addresses in plain text, this spills
     /// sensitive data to the console, so be careful
@@ -261,17 +261,17 @@ pub struct CliConfig {
 /// This structs contains the sub configuration for the logging and monitoring
 /// options. Just for structuring the cli flags
 #[derive(Args, Clone, Debug, Default, Deserialize)]
-#[clap()]
+#[command()]
 pub struct CliObservabilityConfig {
     /// Define the verbosity of the application, repeat for more verbosity
-    #[clap(long, short = 'v', global(true), parse(from_occurrences))]
+    #[arg(long, short = 'v', global(true), action = clap::ArgAction::Count)]
     pub verbose: u8,
-    #[clap(long, short, global(true), conflicts_with = "verbose")]
+    #[arg(long, short, global(true), conflicts_with = "verbose")]
     /// Suppress all logging
     pub quiet: bool,
     #[cfg(feature = "jaeger-telemetry")]
     /// The jaeger endpoint to send the traces to
-    #[clap(long, short, global(true))]
+    #[arg(long, short, global(true))]
     pub jaeger_endpoint: Option<String>,
 }
 
