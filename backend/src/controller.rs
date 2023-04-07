@@ -31,7 +31,6 @@ use tokio::{
 };
 use tracing::{debug, error, info, info_span, instrument, Instrument, Span};
 
-
 /// The global channel on which the controller can be communicated with
 pub static CONTROLLER_CHANNEL: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
 /// A session encryption key which is used to encrypt the session used for
