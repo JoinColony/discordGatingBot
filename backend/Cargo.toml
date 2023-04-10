@@ -2,6 +2,7 @@
 name = "discord-gating-bot"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.65.0"
 license = "GPLv3"
 description = """A discord bot that can grant discord roles on a server based on reputation in a specific colony"""
 readme = "README.md"
