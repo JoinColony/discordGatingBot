@@ -737,13 +737,20 @@ impl FromStr for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::CliConfig;
+    use crate::cli::{CliConfig, StorageType};
     use crate::config::setup_config;
     use crate::storage;
+    use secrecy::SecretString;
 
     async fn setup() {
-        let cfg = CliConfig::default();
+        let mut cfg = CliConfig::default();
+        cfg.storage.storage_type = Some(StorageType::InMemory);
+        cfg.storage.key = Some(SecretString::from_str("test").unwrap());
+        cfg.discord.token = Some(SecretString::from_str("test").unwrap());
+        cfg.discord.invite_url = Some("test".to_string());
+
         setup_config(&cfg).unwrap();
+
         Controller::<storage::InMemoryStorage>::init().await;
     }
 
