@@ -117,9 +117,9 @@ jobs:
       - name: check msrv
         run: |
           $(
-            set -e; 
+            set -e;
             for package_path in $(cargo metadata --no-deps | jq '.packages[].manifest_path' | xargs dirname);
-              do 
+              do
                 cargo msrv --path $package_path verify;
               done
           )
@@ -199,6 +199,8 @@ jobs:
           submodules: true
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Build frontend
+        run: cd frontend && npm install && npm run build && cd -
       - name: Generate code coverage
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - uses: actions/checkout@v3
@@ -213,11 +215,11 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm install && npm run build && cd -
       - name: Collect coverage data
-        run: | 
+        run: |
           cargo llvm-cov \
           --fail-under-lines 80.0 \
           --workspace \
-          nextest --lcov --output-path lcov.info 
+          nextest --lcov --output-path lcov.info
 
   loom:
     runs-on: ubuntu-latest
@@ -264,7 +266,7 @@ jobs:
           ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0"
           RUSTFLAGS: "-Z sanitizer=address"
 
-      # Leaks can also occur in safe code 
+      # Leaks can also occur in safe code
       # https://github.com/japaric/rust-san#leaksanitizer
       - name: cargo test -Zsanitizer=leak
         run: cargo test --all-features --target x86_64-unknown-linux-gnu
@@ -272,7 +274,7 @@ jobs:
           LSAN_OPTIONS: "suppressions=lsan-suppressions.txt"
           RUSTFLAGS: "-Z sanitizer=leak"
 
-       # Just running the binary might not make much sense, unless we run 
+       # Just running the binary might not make much sense, unless we run
        # a special test binary, running on tests does not work though
        # https://github.com/japaric/rust-san#memorysanitizer-use-of-uninitialized-value-in-the-test-runner
       - name: cargo run -Zsanitizer=memory
@@ -282,7 +284,7 @@ jobs:
           RUSTFLAGS: "-Z sanitizer=memory"
 
         # https://github.com/japaric/rust-san#threadsanitizer-data-race-in-the-test-runner
-        # does not seem to work and we still panic even with setting the test threads in 
+        # does not seem to work and we still panic even with setting the test threads in
         # environment variable or cli flags, so we fall back to testing the binary
         # which might be less usefull
       - name: cargo run -Zsanitizer=thread
@@ -310,7 +312,7 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Build frontend
         run: cd frontend && npm install && npm run build && cd -
-      - name: cargo miri 
+      - name: cargo miri
         run: cargo miri nextest run
         env:
           MIRIFLAGS: ""
