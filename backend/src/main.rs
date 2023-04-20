@@ -25,7 +25,7 @@
 //!
 //! To get started just run and go from there
 //!```bash
-//! discord-gating-bot help   
+//! discord-gating-bot help
 //!```
 //! also man pages are genarated by the cargo build inside the man folder
 
@@ -41,6 +41,7 @@
 #![deny(rustdoc::invalid_html_tags)]
 
 mod cli;
+mod colony_client;
 mod command;
 mod config;
 mod controller;

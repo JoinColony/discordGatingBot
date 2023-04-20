@@ -4,23 +4,20 @@ use crate::gate::{
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use cached::{proc_macro::cached, Cached, TimedCache};
-use colony_rs::{
-    get_colony_name, get_domain_count, get_reputation_in_domain, u256_from_f64_saturating, H160,
-    U256, U512,
-};
+use colony_rs::{u256_from_f64_saturating, ReputationNoProof, H160, U256, U512};
 use governor::{
     clock::DefaultClock,
     state::{direct::NotKeyed, InMemoryState},
     Quota, RateLimiter,
 };
 use nonzero_ext::*;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
-use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
+use std::{boxed::Box, sync::Arc};
 use tracing::{debug, info, instrument, trace, warn, Instrument};
 
 /// this must be smaller than 1e76 or so, to not overflow the later U512
@@ -32,20 +29,23 @@ static PRECISION_FACTOR_TIMES_100: Lazy<U512> = Lazy::new(|| U512::from(std::u12
 
 pub static RATE_LIMITER: Lazy<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> =
     Lazy::new(|| RateLimiter::direct(Quota::per_second(nonzero!(100u32))));
+
+static CLIENT: OnceCell<Arc<dyn ColonyReputationClient>> = OnceCell::new();
+
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
 #[derive(Debug, Clone, Deserialize, Hash, Serialize, PartialEq, Eq)]
 pub struct ReputationGate {
-    pub chain_id: U256,
+    chain_id: U256,
     /// The colony address in which the reputation should be looked up
-    pub colony_address: H160,
-    pub colony_name: String,
-    /// The domain in which the reputation should be looked up  
-    pub colony_domain: u64,
+    colony_address: H160,
+    colony_name: String,
+    /// The domain in which the reputation should be looked up
+    colony_domain: u64,
     /// The reputation percentage in a domain required to be granted the role
     /// scaled by the precision factor to not lose everything after the comma in
     /// the f64 conversion
-    pub reputation_threshold_scaled: U256,
+    reputation_threshold_scaled: U256,
 }
 
 #[typetag::serde]
@@ -117,7 +117,11 @@ impl GatingCondition for ReputationGate {
             bail!("Third option must be reputation");
         }
 
-        let domaincount = get_domain_count(colony_address)
+        let domaincount = CLIENT
+            .get()
+            .ok_or_else(|| anyhow!("No client set for reputation gate"))?
+            .get_domain_count(&colony_address)
+            .in_current_span()
             .await
             .context("Failed to create reputation gate, could not get domains for colony")?;
 
@@ -138,10 +142,15 @@ impl GatingCondition for ReputationGate {
         let reputation_threshold_scaled =
             u256_from_f64_saturating(reputation_percentage * PRECISION_FACTOR);
 
-        let colony_name = get_colony_name(colony_address).await.unwrap_or_else(|why| {
-            warn!("Error getting colony name: {}", why);
-            "".to_string()
-        });
+        let colony_name = CLIENT
+            .get()
+            .ok_or_else(|| anyhow!("No client set for reputation gate"))?
+            .get_colony_name(&colony_address)
+            .await
+            .unwrap_or_else(|why| {
+                warn!("Error getting colony name: {}", why);
+                "".to_string()
+            });
         debug!(?colony_name, "Colony name is:");
 
         let chain_id = U256::from(100);
@@ -195,7 +204,7 @@ impl GatingCondition for ReputationGate {
             },
             GateOptionValue {
                 name: "colony_name".to_string(),
-                value: GateOptionValueType::String(format!("{:?}", self.colony_name)),
+                value: GateOptionValueType::String(self.colony_name.to_string()),
             },
             GateOptionValue {
                 name: "domain".to_string(),
@@ -297,7 +306,14 @@ async fn get_reputation_in_domain_cached(
     wallet_address: &H160,
     domain: u64,
 ) -> Result<String, String> {
-    match get_reputation_in_domain(colony_address, wallet_address, domain).await {
+    let Some(client) = CLIENT.get() else {
+        return Err("No client available".to_string());
+    };
+    match client
+        .get_reputation_in_domain(colony_address, wallet_address, domain)
+        .in_current_span()
+        .await
+    {
         Ok(rep_no_proof) => Ok(rep_no_proof.reputation_amount),
         Err(why) => Err(format!("{:?}", why)),
     }
@@ -338,4 +354,123 @@ fn calculate_reputation_percentage(
         ))?;
     debug!(?left_side, ?right_side, "Calculated reputation percentage");
     Ok(left_side <= right_side)
+}
+
+impl ReputationGate {
+    pub fn init_client<C: 'static + ColonyReputationClient>(client: Arc<C>) {
+        CLIENT.set(client).expect("Failed to set client");
+    }
+}
+
+#[async_trait]
+pub trait ColonyReputationClient: std::fmt::Debug + Send + Sync {
+    async fn get_reputation_in_domain(
+        &self,
+        colony_address: &H160,
+        wallet_address: &H160,
+        domain: u64,
+    ) -> Result<ReputationNoProof>;
+    async fn get_colony_name(&self, colony_address: &H160) -> Result<String>;
+    async fn get_domain_count(&self, colony_address: &H160) -> Result<u64>;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::gate::Gate;
+    use async_trait::async_trait;
+    use colony_rs::ReputationNoProof;
+
+    #[derive(Debug)]
+    struct MockColonyReputationClient {
+        reputation: String,
+    }
+    impl MockColonyReputationClient {
+        fn new(reputation: String) -> Self {
+            Self { reputation }
+        }
+    }
+
+    #[async_trait]
+    impl ColonyReputationClient for MockColonyReputationClient {
+        async fn get_reputation_in_domain(
+            &self,
+            _colony_address: &H160,
+            _wallet_address: &H160,
+            _domain: u64,
+        ) -> Result<ReputationNoProof> {
+            Ok(ReputationNoProof {
+                key: "0x000000".to_string(),
+                reputation_amount: "10".to_string(),
+                value: "0".to_string(),
+            })
+        }
+
+        async fn get_colony_name(&self, colony_address: &H160) -> Result<String> {
+            Ok("TestColony".to_string())
+        }
+
+        async fn get_domain_count(&self, colony_address: &H160) -> Result<u64> {
+            Ok(3)
+        }
+    }
+
+    fn setup() {
+        let client = Arc::new(MockColonyReputationClient::new("100".to_string()));
+        ReputationGate::init_client(client);
+    }
+
+    #[tokio::test]
+    async fn test_reputation_gate_from_options() {
+        setup();
+        let mut options = Vec::with_capacity(3);
+
+        options.push(GateOptionValue {
+            name: "colony".to_string(),
+            value: GateOptionValueType::String(
+                "0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3".to_string(),
+            ),
+        });
+        options.push(GateOptionValue {
+            name: "domain".to_string(),
+            value: GateOptionValueType::I64(1),
+        });
+        options.push(GateOptionValue {
+            name: "reputation".to_string(),
+            value: GateOptionValueType::F64(0.1),
+        });
+        let gate = Gate::new(1, "reputation", &options).await.unwrap();
+        assert_eq!(gate.role_id, 1);
+        let fields = gate.condition.fields();
+        let chain_id = if let GateOptionValueType::String(value) = &fields[0].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(chain_id, "0x64");
+        let colony = if let GateOptionValueType::String(value) = &fields[1].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(colony, "0xcfd3aa1ebc6119d80ed47955a87a9d9c281a97b3");
+        let colony_name = if let GateOptionValueType::String(value) = &fields[2].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(colony_name, "TestColony");
+        let domain = if let GateOptionValueType::I64(value) = &fields[3].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(*domain, 1);
+        let reputation = if let GateOptionValueType::F64(value) = &fields[4].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(*reputation, 0.1);
+    }
 }

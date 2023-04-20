@@ -3,13 +3,17 @@ use crate::gate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
-use colony_rs::{balance_off, get_token_decimals, get_token_symbol, H160, U256};
+use colony_rs::{H160, U256};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
-use tracing::{debug, instrument, warn, Instrument};
+use std::sync::Arc;
+use tracing::{debug, error, instrument, warn, Instrument};
+
+static CLIENT: OnceCell<Arc<dyn ColonyTokenClient>> = OnceCell::new();
 
 /// Represents a gate for a discord role issues by the /gate slash command.
 /// This is stored in the database for each discord server.
@@ -82,16 +86,20 @@ impl GatingCondition for TokenGate {
         };
         let chain_id = U256::from(100);
 
-        let token_symbol = get_token_symbol(token_address)
-            .in_current_span()
+        let token_symbol = CLIENT
+            .get()
+            .ok_or_else(|| anyhow!("No client set for token gate"))?
+            .get_token_symbol(&token_address)
             .await
             .unwrap_or_else(|why| {
                 warn!("Failed to get token symbol: {}", why);
                 "".to_string()
             });
         debug!(token_symbol, "Token symbol is:");
-        let token_decimals = get_token_decimals(token_address)
-            .in_current_span()
+        let token_decimals = CLIENT
+            .get()
+            .ok_or_else(|| anyhow!("No client set for token gate"))?
+            .get_token_decimals(&token_address)
             .await
             .context("Failed to create token gate, could not get token decimals")?;
 
@@ -109,7 +117,12 @@ impl GatingCondition for TokenGate {
 
     #[instrument(name = "token_condition", skip(wallet_address))]
     async fn check(&self, wallet_address: H160) -> bool {
-        let balance = match balance_off(&self.token_address, &wallet_address)
+        let Some(client) = CLIENT.get() else {
+            error!("No client set for token gate");
+            return false;
+        };
+        let balance = match client
+            .balance_of(&self.token_address, &wallet_address)
             .in_current_span()
             .await
         {
@@ -144,7 +157,7 @@ impl GatingCondition for TokenGate {
             },
             GateOptionValue {
                 name: "token_symbol".to_string(),
-                value: GateOptionValueType::String(format!("{:?}", self.token_symbol)),
+                value: GateOptionValueType::String(self.token_symbol.to_string()),
             },
             GateOptionValue {
                 name: "amount".to_string(),
@@ -155,5 +168,98 @@ impl GatingCondition for TokenGate {
 
     fn instance_name(&self) -> &'static str {
         Self::name()
+    }
+}
+
+impl TokenGate {
+    pub fn init_client<C: 'static + ColonyTokenClient>(client: Arc<C>) {
+        CLIENT.set(client).expect("Failed to set client");
+    }
+}
+
+#[async_trait]
+pub trait ColonyTokenClient: std::fmt::Debug + Send + Sync {
+    async fn balance_of(&self, token_address: &H160, wallet_address: &H160) -> Result<U256>;
+    async fn get_token_decimals(&self, wallet_address: &H160) -> Result<u8>;
+    async fn get_token_symbol(&self, wallet_address: &H160) -> Result<String>;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::gate::Gate;
+    use async_trait::async_trait;
+
+    #[derive(Debug)]
+    struct MockColonyTokenClient {
+        reputation: String,
+    }
+    impl MockColonyTokenClient {
+        fn new(reputation: String) -> Self {
+            Self { reputation }
+        }
+    }
+
+    #[async_trait]
+    impl ColonyTokenClient for MockColonyTokenClient {
+        async fn balance_of(&self, _token_address: &H160, _wallet_address: &H160) -> Result<U256> {
+            Ok(U256::from(100))
+        }
+
+        async fn get_token_decimals(&self, _wallet_address: &H160) -> Result<u8> {
+            Ok(18)
+        }
+
+        async fn get_token_symbol(&self, _wallet_address: &H160) -> Result<String> {
+            Ok("TEST".to_string())
+        }
+    }
+
+    fn setup() {
+        let client = Arc::new(MockColonyTokenClient::new("100".to_string()));
+        TokenGate::init_client(client);
+    }
+
+    #[tokio::test]
+    async fn test_token_gate_from_options() {
+        setup();
+        let mut options = Vec::with_capacity(2);
+        options.push(GateOptionValue {
+            name: "token_address".to_string(),
+            value: GateOptionValueType::String(
+                "0xc9B6218AffE8Aba68a13899Cbf7cF7f14DDd304C".to_string(),
+            ),
+        });
+        options.push(GateOptionValue {
+            name: "amount".to_string(),
+            value: GateOptionValueType::I64(1),
+        });
+        let gate = Gate::new(1, "token", &options).await.unwrap();
+        assert_eq!(gate.role_id, 1);
+        let fields = gate.condition.fields();
+        let chain_id = if let GateOptionValueType::String(value) = &fields[0].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(chain_id, "0x64");
+        let address = if let GateOptionValueType::String(value) = &fields[1].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(address, "0xc9b6218affe8aba68a13899cbf7cf7f14ddd304c");
+        let symbol = if let GateOptionValueType::String(value) = &fields[2].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(symbol, "TEST");
+        let amount = if let GateOptionValueType::I64(value) = &fields[3].value {
+            value
+        } else {
+            panic!("Invalid option type");
+        };
+        assert_eq!(*amount, 1);
     }
 }

@@ -2,12 +2,16 @@
 //! respective subcommand
 //!
 
+use std::sync::Arc;
+
 use crate::cli::*;
 
+use crate::colony_client::ColonyClient;
 use crate::config;
 use crate::config::CONFIG;
 use crate::controller::{self, BatchResponse, Controller, Message};
 use crate::discord;
+use crate::gate::{ReputationGate, TokenGate};
 use crate::server;
 use crate::storage::{InMemoryStorage, SledEncryptedStorage, SledUnencryptedStorage, Storage};
 use chacha20poly1305::{
@@ -304,6 +308,10 @@ pub fn execute(cli: &Cli) {
             });
         }
         None => {
+            let colony_client = Arc::new(ColonyClient::new());
+            ReputationGate::init_client(colony_client.clone());
+            TokenGate::init_client(colony_client);
+
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
