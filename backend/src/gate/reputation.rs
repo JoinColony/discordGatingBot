@@ -79,7 +79,7 @@ impl GatingCondition for ReputationGate {
             },
             GateOption {
                 name: "reputation",
-                description: "The reputation amount required to be granted the role",
+                description: "The reputation threshold in percent to grant the role",
                 required: true,
                 option_type: GateOptionType::F64 {
                     min: Some(0.0),
@@ -358,7 +358,9 @@ fn calculate_reputation_percentage(
 
 impl ReputationGate {
     pub fn init_client<C: 'static + ColonyReputationClient>(client: Arc<C>) {
-        CLIENT.set(client).expect("Failed to set client");
+        if let Err(_) = CLIENT.set(client) {
+            warn!("Reputation gate client already set");
+        }
     }
 }
 
@@ -379,15 +381,13 @@ mod test {
     use super::*;
     use crate::gate::Gate;
     use async_trait::async_trait;
-    use colony_rs::ReputationNoProof;
+    use table_test::table_test;
 
     #[derive(Debug)]
-    struct MockColonyReputationClient {
-        reputation: String,
-    }
+    struct MockColonyReputationClient {}
     impl MockColonyReputationClient {
-        fn new(reputation: String) -> Self {
-            Self { reputation }
+        fn new() -> Self {
+            Self {}
         }
     }
 
@@ -395,40 +395,98 @@ mod test {
     impl ColonyReputationClient for MockColonyReputationClient {
         async fn get_reputation_in_domain(
             &self,
-            _colony_address: &H160,
-            _wallet_address: &H160,
-            _domain: u64,
+            colony_address: &H160,
+            wallet_address: &H160,
+            domain: u64,
         ) -> Result<ReputationNoProof> {
-            Ok(ReputationNoProof {
-                key: "0x000000".to_string(),
-                reputation_amount: "10".to_string(),
-                value: "0".to_string(),
-            })
+            let base_reputation_wallet =
+                H160::from_str("0x0000000000000000000000000000000000000000").unwrap();
+            let existant_colony_with_one_domain =
+                H160::from_str("0x0000000000000000000000000000000000000001").unwrap();
+            let existant_colony_with_ten_domains =
+                H160::from_str("0x000000000000000000000000000000000000000A").unwrap();
+            let wallet_with_reputation_one =
+                H160::from_str("0x0000000000000000000000000000000000000001").unwrap();
+            let wallet_with_reputation_ten =
+                H160::from_str("0x000000000000000000000000000000000000000A").unwrap();
+
+            if 10 < domain && colony_address == &existant_colony_with_ten_domains {
+                bail!("Domain out of range");
+            }
+
+            if 1 < domain && colony_address == &existant_colony_with_one_domain {
+                bail!("Domain out of range");
+            }
+
+            if wallet_address == &base_reputation_wallet {
+                return Ok(ReputationNoProof {
+                    key: "".to_string(),
+                    reputation_amount: "100".to_string(),
+                    value: "123".to_string(),
+                });
+            }
+
+            if wallet_address == &wallet_with_reputation_ten {
+                return Ok(ReputationNoProof {
+                    key: "".to_string(),
+                    reputation_amount: "10".to_string(),
+                    value: "123".to_string(),
+                });
+            }
+
+            if wallet_address == &wallet_with_reputation_one {
+                return Ok(ReputationNoProof {
+                    key: "".to_string(),
+                    reputation_amount: "1".to_string(),
+                    value: "123".to_string(),
+                });
+            }
+            bail!("Unknown colony");
         }
 
         async fn get_colony_name(&self, colony_address: &H160) -> Result<String> {
-            Ok("TestColony".to_string())
+            if colony_address
+                == &H160::from_str("0x000000000000000000000000000000000000000A").unwrap()
+            {
+                return Ok("TestColony".to_string());
+            }
+            bail!("Unknown colony");
         }
 
         async fn get_domain_count(&self, colony_address: &H160) -> Result<u64> {
-            Ok(3)
+            if colony_address
+                == &H160::from_str("0x0000000000000000000000000000000000000001").unwrap()
+            {
+                return Ok(1);
+            }
+
+            if colony_address
+                == &H160::from_str("0x000000000000000000000000000000000000000A").unwrap()
+            {
+                return Ok(10);
+            }
+            bail!("Unknown colony");
         }
     }
 
     fn setup() {
-        let client = Arc::new(MockColonyReputationClient::new("100".to_string()));
+        let client = Arc::new(MockColonyReputationClient::new());
         ReputationGate::init_client(client);
     }
 
+    #[test]
+    fn test_name() {
+        assert_eq!(ReputationGate::name(), "reputation");
+    }
+
     #[tokio::test]
-    async fn test_reputation_gate_from_options() {
+    async fn test_instance_name() {
         setup();
         let mut options = Vec::with_capacity(3);
-
         options.push(GateOptionValue {
             name: "colony".to_string(),
             value: GateOptionValueType::String(
-                "0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3".to_string(),
+                "0x0000000000000000000000000000000000000001".to_string(),
             ),
         });
         options.push(GateOptionValue {
@@ -440,37 +498,336 @@ mod test {
             value: GateOptionValueType::F64(0.1),
         });
         let gate = Gate::new(1, "reputation", &options).await.unwrap();
-        assert_eq!(gate.role_id, 1);
-        let fields = gate.condition.fields();
-        let chain_id = if let GateOptionValueType::String(value) = &fields[0].value {
-            value
-        } else {
-            panic!("Invalid option type");
-        };
-        assert_eq!(chain_id, "0x64");
-        let colony = if let GateOptionValueType::String(value) = &fields[1].value {
-            value
-        } else {
-            panic!("Invalid option type");
-        };
-        assert_eq!(colony, "0xcfd3aa1ebc6119d80ed47955a87a9d9c281a97b3");
-        let colony_name = if let GateOptionValueType::String(value) = &fields[2].value {
-            value
-        } else {
-            panic!("Invalid option type");
-        };
-        assert_eq!(colony_name, "TestColony");
-        let domain = if let GateOptionValueType::I64(value) = &fields[3].value {
-            value
-        } else {
-            panic!("Invalid option type");
-        };
-        assert_eq!(*domain, 1);
-        let reputation = if let GateOptionValueType::F64(value) = &fields[4].value {
-            value
-        } else {
-            panic!("Invalid option type");
-        };
-        assert_eq!(*reputation, 0.1);
+        assert_eq!(ReputationGate::name(), gate.name());
+    }
+
+    #[test]
+    fn test_description() {
+        assert_eq!(
+            ReputationGate::description(),
+            "Guards a role with a reputation percentage in a colony domain"
+        );
+    }
+
+    #[test]
+    fn test_options() {
+        let options = ReputationGate::options();
+        assert_eq!(options.len(), 3);
+        assert_eq!(options[0].name, "colony");
+        assert_eq!(
+            options[0].description,
+            "The colony address in which the reputation should be looked up"
+        );
+        assert_eq!(options[0].required, true);
+        assert_eq!(options[1].name, "domain");
+        assert_eq!(
+            options[1].description,
+            "The domain in which the reputation should be looked up"
+        );
+        assert_eq!(options[1].required, true);
+        assert_eq!(options[2].name, "reputation");
+        assert_eq!(
+            options[2].description,
+            "The reputation threshold in percent to grant the role"
+        );
+        assert_eq!(options[2].required, true);
+    }
+
+    #[tokio::test]
+    async fn test_from_wrong_number_of_options() {
+        setup();
+        let mut options = Vec::with_capacity(4);
+
+        options.push(GateOptionValue {
+            name: "colony".to_string(),
+            value: GateOptionValueType::String(
+                "0x0000000000000000000000000000000000000001".to_string(),
+            ),
+        });
+        assert!(Gate::new(1, "reputation", &options).await.is_err());
+        options.push(GateOptionValue {
+            name: "domain".to_string(),
+            value: GateOptionValueType::I64(1),
+        });
+        assert!(Gate::new(1, "reputation", &options).await.is_err());
+        options.push(GateOptionValue {
+            name: "reputation".to_string(),
+            value: GateOptionValueType::F64(0.1),
+        });
+        assert!(Gate::new(1, "reputation", &options).await.is_ok());
+        options.push(GateOptionValue {
+            name: "reputation".to_string(),
+            value: GateOptionValueType::F64(0.2),
+        });
+        assert!(Gate::new(1, "reputation", &options).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_from_unordered_options() {
+        setup();
+        let cases = vec![
+            ((0, 2, 1), ()),
+            ((1, 0, 2), ()),
+            ((1, 2, 0), ()),
+            ((2, 0, 1), ()),
+            ((2, 1, 0), ()),
+        ];
+        let mut options = Vec::with_capacity(3);
+
+        options.push(GateOptionValue {
+            name: "colony".to_string(),
+            value: GateOptionValueType::String(
+                "0x0000000000000000000000000000000000000001".to_string(),
+            ),
+        });
+
+        options.push(GateOptionValue {
+            name: "domain".to_string(),
+            value: GateOptionValueType::I64(1),
+        });
+
+        options.push(GateOptionValue {
+            name: "reputation".to_string(),
+            value: GateOptionValueType::F64(0.1),
+        });
+        assert!(Gate::new(1, "reputation", &options).await.is_ok());
+        for (test_case, (idx0, idx1, idx2), _) in table_test!(cases) {
+            let mut permuted_options = Vec::with_capacity(3);
+            permuted_options.push(options[idx0].clone());
+            permuted_options.push(options[idx1].clone());
+            permuted_options.push(options[idx2].clone());
+            let gate = Gate::new(1, "reputation", &permuted_options).await;
+            test_case
+                .given(&format!("wrong ordered options {:?}", permuted_options))
+                .when("creating a gate from options")
+                .then("it should fail")
+                .assert_eq(gate.is_err(), true);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reputation_gate_from_options() {
+        setup();
+        let cases = vec![
+            (
+                ("0x0000000000000000000000000000000000000001", 1, 0.1),
+                Ok((
+                    "0x64",
+                    "0x0000000000000000000000000000000000000001",
+                    "",
+                    1,
+                    0.1,
+                )),
+            ),
+            (
+                ("0x000000000000000000000000000000000000000A", 9, 0.2),
+                Ok((
+                    "0x64",
+                    "0x000000000000000000000000000000000000000a",
+                    "TestColony",
+                    9,
+                    0.2,
+                )),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", 5, 0.3),
+                Err(()),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", 1, 100.1),
+                Err(()),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", 1, 0.0),
+                Err(()),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", 1, -1.0),
+                Err(()),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", 0, 0.1),
+                Err(()),
+            ),
+            (
+                ("0x0000000000000000000000000000000000000001", -1, 0.1),
+                Err(()),
+            ),
+            (
+                ("0xCFD3aa1EbC6119D80Ed47955a87A9d9C281A97B3", 1, 0.1),
+                Err(()),
+            ),
+        ];
+        for (test_case, (address, domain, reputation), expected) in table_test!(cases) {
+            let mut options = Vec::with_capacity(3);
+
+            options.push(GateOptionValue {
+                name: "colony".to_string(),
+                value: GateOptionValueType::String(address.to_string()),
+            });
+            options.push(GateOptionValue {
+                name: "domain".to_string(),
+                value: GateOptionValueType::I64(domain),
+            });
+            options.push(GateOptionValue {
+                name: "reputation".to_string(),
+                value: GateOptionValueType::F64(reputation),
+            });
+
+            match Gate::new(1, "reputation", &options).await {
+                Ok(gate) => {
+                    let fields = gate.condition.fields();
+                    let actual_chain_id =
+                        if let GateOptionValueType::String(value) = &fields[0].value {
+                            value
+                        } else {
+                            panic!("Invalid option type");
+                        };
+                    let actual_address =
+                        if let GateOptionValueType::String(value) = &fields[1].value {
+                            value
+                        } else {
+                            panic!("Invalid option type");
+                        };
+                    let actual_name = if let GateOptionValueType::String(value) = &fields[2].value {
+                        value
+                    } else {
+                        panic!("Invalid option type");
+                    };
+                    let actual_domain = if let GateOptionValueType::I64(value) = &fields[3].value {
+                        value
+                    } else {
+                        panic!("Invalid option type");
+                    };
+                    let actual_reputation =
+                        if let GateOptionValueType::F64(value) = &fields[4].value {
+                            value
+                        } else {
+                            panic!("Invalid option type");
+                        };
+                    if let Ok((
+                        exp_chain_id,
+                        exp_colony_address,
+                        exp_colony_name,
+                        exp_domain,
+                        exp_reputation,
+                    )) = expected
+                    {
+                        test_case
+                            .given(&format!(
+                                "valid options address: {:?}, domain: {}, reputation: {}",
+                                address, domain, reputation
+                            ))
+                            .when("creating a gate from options")
+                            .then("it should succeed and have the expected fields")
+                            .assert_eq(actual_chain_id, &exp_chain_id.to_string())
+                            .assert_eq(actual_address, &exp_colony_address.to_string())
+                            .assert_eq(actual_name, &exp_colony_name.to_string())
+                            .assert_eq(actual_reputation, &exp_reputation)
+                            .assert_eq(actual_domain, &exp_domain);
+                    } else {
+                        test_case
+                            .given(&format!(
+                                "valid options address: {:?}, domain: {}, reputation: {}",
+                                address, domain, reputation
+                            ))
+                            .when("creating a gate from options")
+                            .then("it should succeed")
+                            .assert_eq(expected.is_ok(), true);
+                    }
+                }
+                Err(_) => {
+                    test_case
+                        .given(&format!(
+                            "invalid options address: {:?}, domain: {}, reputation: {}",
+                            address, domain, reputation
+                        ))
+                        .when("creating a gate from options")
+                        .then("it should give an error")
+                        .assert_eq(expected.is_err(), true);
+                }
+            }
+        }
+    }
+    #[tokio::test]
+    async fn test_reputation_gate_check() {
+        setup();
+        let cases = vec![
+            (
+                (
+                    "0x000000000000000000000000000000000000000A",
+                    9,
+                    1.0,
+                    "0x000000000000000000000000000000000000000A",
+                ),
+                Some(1234),
+            ),
+            (
+                (
+                    "0x0000000000000000000000000000000000000001",
+                    9,
+                    1.0,
+                    "0x000000000000000000000000000000000000000A",
+                ),
+                None,
+            ),
+            (
+                (
+                    "0x0000000000000000000000000000000000000001",
+                    1,
+                    1.0,
+                    "0x000000000000000000000000000000000000000A",
+                ),
+                Some(1234),
+            ),
+            (
+                (
+                    "0x0000000000000000000000000000000000000001",
+                    1,
+                    1.0,
+                    "0x0000000000000000000000000000000000000001",
+                ),
+                None,
+            ),
+        ];
+        for (test_case, (address, domain, reputation, wallet), expected) in table_test!(cases) {
+            let mut options = Vec::with_capacity(3);
+
+            options.push(GateOptionValue {
+                name: "colony".to_string(),
+                value: GateOptionValueType::String(address.to_string()),
+            });
+            options.push(GateOptionValue {
+                name: "domain".to_string(),
+                value: GateOptionValueType::I64(domain),
+            });
+            options.push(GateOptionValue {
+                name: "reputation".to_string(),
+                value: GateOptionValueType::F64(reputation),
+            });
+
+            if let Ok(gate) = Gate::new(1234, "reputation", &options).await {
+                let wallet_parsed = H160::from_str(wallet).unwrap();
+                let check_result = gate.check_condition(wallet_parsed).await;
+
+                test_case
+                    .given(&format!(
+                        "valid options address: {:?}, domain: {}, reputation: {}, wallet {:?}",
+                        address, domain, reputation, wallet
+                    ))
+                    .when("checking the gate condition")
+                    .then("it should succeed and allow the right roles")
+                    .assert_eq(check_result, expected);
+            } else {
+                test_case
+                    .given(&format!(
+                        "invalid options address: {:?}, domain: {}, reputation: {}, wallet {:?}",
+                        address, domain, reputation, wallet
+                    ))
+                    .when("checking the gate condition")
+                    .then("it should fail")
+                    .assert_eq(expected, None);
+            }
+        }
     }
 }
