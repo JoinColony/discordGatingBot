@@ -1,14 +1,14 @@
-import { providers } from 'ethers';
+import { BrowserProvider } from 'ethers';
 
 // If MetaMask is installed there will be an `ethereum` object on the `window`
-const provider = new providers.Web3Provider((window as any).ethereum);
+const provider = new BrowserProvider((window as any).ethereum);
 
 // Get the Colony's XDAI funding in the ROOT pot (id 1)
 const start = async () => {
-  // // This will try to connect the page to MetaMask
+  // This will try to connect the page to MetaMask
   await provider.send('eth_requestAccounts', []);
 
-  const signer = provider.getSigner();
+  const signer = await provider.getSigner();
   const address = await signer.getAddress();
 
   const pathSplit = window.location.pathname.split('/');

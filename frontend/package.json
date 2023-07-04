@@ -9,7 +9,7 @@
     "start": "concurrently npm:watch-ts npm:watch-css",
     "build-ts": "esbuild --bundle src/index.ts --minify --outfile=dist/index.js",
     "build-css": "tailwindcss -i ./src/index.css -o ./www/bundle.css --minify",
-    "build-html": "cpy --flat www/index.html dist",
+    "build-html": "cpy --flat www/*.{html,woff2} dist",
     "build": "concurrently npm:build-ts npm:build-html npm:build-css"
   },
   "keywords": [
@@ -20,13 +20,13 @@
   "author": "Christian Maniewski <chris@colony.io>",
   "license": "GPL-3.0-only",
   "devDependencies": {
-    "concurrently": "^8.0.1",
-    "cpy-cli": "^4.1.0",
-    "esbuild": "^0.17.8",
-    "tailwindcss": "^3.3.1",
-    "typescript": "^4.9.5"
+    "concurrently": "^8.2.0",
+    "cpy-cli": "^5.0.0",
+    "esbuild": "^0.18.11",
+    "tailwindcss": "^3.3.2",
+    "typescript": "^5.1.6"
   },
   "dependencies": {
-    "ethers": "^5.7.2"
+    "ethers": "^6.6.2"
   }
 }
