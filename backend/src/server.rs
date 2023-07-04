@@ -17,7 +17,6 @@ use tokio::sync::oneshot;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use tracing_actix_web::TracingLogger;
 
-
 static SIGN_SCRIPT: &str = include_str!("../../frontend/dist/index.js");
 static FAVICON: &[u8] = include_bytes!("../static/favicon.ico");
 

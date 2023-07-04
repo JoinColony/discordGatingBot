@@ -83,8 +83,7 @@ pub fn setup_logging() {
 }
 
 /// The different log levels, from quiet = 0 to trace = 5
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum LogLevel {
     Off = 0,
     #[default]
@@ -143,8 +142,6 @@ impl LogLevel {
         }
     }
 }
-
-
 
 impl std::fmt::Display for LogLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

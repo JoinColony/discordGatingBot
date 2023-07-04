@@ -16,7 +16,6 @@
 //! application (and a bot) via the
 //! [discord developer portal](https://discord.com/developers/applications).
 //!
-//!
 //! When running the bot for the first time, no slash commands are
 //! registered for the discord application, which makes the bot pretty useless.
 //! With the `discord global/server` sub command, the bot will register all
