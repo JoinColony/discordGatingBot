@@ -10,7 +10,7 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305,
 };
-use hex;
+
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -97,7 +97,7 @@ impl Storage for InMemoryStorage {
     #[instrument(skip(self))]
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter> {
         debug!("Listing gates");
-        if let Some(gates) = self.gates.get(&guild_id) {
+        if let Some(gates) = self.gates.get(guild_id) {
             Ok(gates.clone().into_iter())
         } else {
             bail!("No gates found for guild {}", guild_id);
@@ -461,7 +461,7 @@ impl EncryptionWrapper {
         let nonce = GenericArray::from_slice(&self.nonce);
         debug!(?nonce, "Using nonce");
         let plaintext = cipher
-            .decrypt(&nonce, self.ciphertext.as_ref())
+            .decrypt(nonce, self.ciphertext.as_ref())
             .map_err(|e| anyhow!("{e}"))?;
         Ok(String::from_utf8(plaintext)?.into())
     }

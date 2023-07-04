@@ -148,22 +148,22 @@ impl From<PartialConf> for PrintablePartialConf {
 impl std::fmt::Debug for PrintablePartialConf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::new();
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "config_file", self.global.config_file));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!(
             "{}: {:?}",
             "session_expiration", self.global.session_expiration
         ));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "maintenance", self.global.maintenance));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "observability", &self.observability));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "discord", &self.discord));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "server", &self.server));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!("{}: {:?}", "storage", &self.storage));
         write!(f, "{}", s)
     }
@@ -172,7 +172,7 @@ struct PrintablePartialObservabilityConf(PartialObservabilityConf);
 impl std::fmt::Debug for PrintablePartialObservabilityConf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::new();
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!(" {}: {:?}", "verbosity", self.0.verbosity));
         #[cfg(feature = "jaeger-telemetry")]
         s.push_str("\n");
@@ -190,11 +190,11 @@ struct PrintablePartialServerConf(PartialServerConf);
 impl std::fmt::Debug for PrintablePartialServerConf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::new();
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!(" {}: {:?}", "url", self.0.url));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!(" {}: {:?}", "host", self.0.host));
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(&format!(" {}: {:?}", "port", self.0.port));
 
         write!(f, "{}", s)
@@ -231,7 +231,7 @@ impl std::fmt::Debug for PrintablePartialDiscordConf {
 /// 3. Environment variables
 /// 4. CLI flags
 pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
-    let (cli_cfg, env, file, default, _) = get_config_hirarchy(&raw_cli_cfg);
+    let (cli_cfg, env, file, default, _) = get_config_hirarchy(raw_cli_cfg);
     let merged = cli_cfg
         .with_fallback(env)
         .with_fallback(file)
@@ -243,7 +243,7 @@ pub fn setup_config(raw_cli_cfg: &CliConfig) -> Result<(), String> {
 
 /// Prints the different sources and finally merged configuration to stdout
 pub fn print_config(raw_cli_cfg: &CliConfig) {
-    let (cli_cfg, env, file, default, config_file) = get_config_hirarchy(&raw_cli_cfg);
+    let (cli_cfg, env, file, default, config_file) = get_config_hirarchy(raw_cli_cfg);
     println!(
         "\nThis is how the configuration was loaded from it's parts, \nif a partial \
         config is completely empty, \nit will be omitted form the output"
@@ -272,7 +272,7 @@ pub fn print_config(raw_cli_cfg: &CliConfig) {
         );
     }
 
-    let (cli_cfg, env, file, default, _) = get_config_hirarchy(&raw_cli_cfg);
+    let (cli_cfg, env, file, default, _) = get_config_hirarchy(raw_cli_cfg);
     let merged = cli_cfg
         .with_fallback(env)
         .with_fallback(file)

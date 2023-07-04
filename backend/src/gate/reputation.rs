@@ -58,38 +58,38 @@ impl GatingCondition for ReputationGate {
         "Guards a role with a reputation percentage in a colony domain"
     }
     fn options() -> Vec<GateOption> {
-        let mut options = Vec::with_capacity(3);
-        options.push(GateOption {
-            name: &"colony",
-            description: &"The colony address in which the reputation should be looked up",
-            required: true,
-            option_type: GateOptionType::String {
-                min_length: Some(42),
-                max_length: Some(42),
+        vec![
+            GateOption {
+                name: "colony",
+                description: "The colony address in which the reputation should be looked up",
+                required: true,
+                option_type: GateOptionType::String {
+                    min_length: Some(42),
+                    max_length: Some(42),
+                },
             },
-        });
-        options.push(GateOption {
-            name: &"domain",
-            description: &"The domain in which the reputation should be looked up",
-            required: true,
-            option_type: GateOptionType::I64 {
-                min: Some(1),
-                max: None,
+            GateOption {
+                name: "domain",
+                description: "The domain in which the reputation should be looked up",
+                required: true,
+                option_type: GateOptionType::I64 {
+                    min: Some(1),
+                    max: None,
+                },
             },
-        });
-        options.push(GateOption {
-            name: &"reputation",
-            description: &"The reputation amount required to be granted the role",
-            required: true,
-            option_type: GateOptionType::F64 {
-                min: Some(0.0),
-                max: Some(100.0),
+            GateOption {
+                name: "reputation",
+                description: "The reputation amount required to be granted the role",
+                required: true,
+                option_type: GateOptionType::F64 {
+                    min: Some(0.0),
+                    max: Some(100.0),
+                },
             },
-        });
-        options
+        ]
     }
     #[instrument(level = "info")]
-    async fn from_options(options: &Vec<GateOptionValue>) -> Result<Box<Self>> {
+    async fn from_options(options: &[GateOptionValue]) -> Result<Box<Self>> {
         debug!("Creating reputation gate from options");
         if options.len() != 3 {
             bail!("Need exactly 3 options");
@@ -99,7 +99,7 @@ impl GatingCondition for ReputationGate {
         }
         let colony_address = match &options[0].value {
             GateOptionValueType::String(s) => {
-                H160::from_str(&s).context("Failed to create reputation gate, invalid address")?
+                H160::from_str(s).context("Failed to create reputation gate, invalid address")?
             }
             _ => bail!("Invalid option type, expected string for colony address"),
         };
@@ -233,7 +233,7 @@ async fn check_reputation(
             // we only check the user for a cache hit, this should imply a
             // cache hit for the base reputation as well, edge cases should
             // be irrelevant
-            if let Some(_) = guard.cache_get(&(colony, wallet, domain)) {
+            if guard.cache_get(&(colony, wallet, domain)).is_some() {
                 debug!("Cache hit, can return now");
                 break;
             }
@@ -249,7 +249,7 @@ async fn check_reputation(
     }
     debug!("Passed rate limiting");
     let base_reputation_fut = tokio::spawn(async move {
-        let colony_address = colony.clone();
+        let colony_address = colony;
         let zero_address = colony_rs::Address::zero();
         get_reputation_in_domain_cached(&colony_address, &zero_address, domain)
             .in_current_span()
@@ -317,8 +317,8 @@ fn calculate_reputation_percentage(
     // => threshold * PRECISION_FACTOR * base_reputation <= 100 * PRECISION_FACTOR * user_reputation
     //
     debug!("Calculating reputation percentage",);
-    let base_reputation = U512::from_dec_str(&base_reputation_str)?;
-    let user_reputation = U512::from_dec_str(&user_reputation_str)?;
+    let base_reputation = U512::from_dec_str(base_reputation_str)?;
+    let user_reputation = U512::from_dec_str(user_reputation_str)?;
     let reputation_threshold_scaled = U512::from(reputation_threshold_scaled);
     debug!(
         ?base_reputation,
