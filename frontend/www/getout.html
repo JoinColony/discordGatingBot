@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title></title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="index.js" async></script>
+  <link href="/bundle.css" rel="stylesheet">
+</head>
+
+<body class="flex items-center justify-center h-screen bg-purple-1000">
+  <main class="container overflow-hidden mx-auto max-w-2xl md:rounded-lg">
+    <header class="bg-purple-500 p-6 relative md:p-9">
+      <img class="w-44" alt="Colony logo" src="colony.svg" />
+      <img class="w-20 absolute right-6 bottom-0 translate-y-1/2 md:right-9" alt="Discord logo" src="discord.svg" />
+    </header>
+    <section class="bg-white p-6 md:p-9">
+      <h1 class="text-xl font-semibold md:text-3xl">
+        Colony Discord Gating Bot
+      </h1>
+      <h2 class="mt-4 text-sm font-semibold text-blue-400 uppercase md:text-l">
+        Remove your discord username from the Gating Bot
+      </h2>
+      <p class="mt-4">
+        Press the button below to disconnect your Discord username and wallet address from the Gating Bot.
+      </p>
+      <p class="mt-4 font-semibold">
+        Once disconnected, all roles you gained in all servers using the Bot will be removed!
+      </p>
+      <p id="text-error" class="mt-4 text-pink font-semibold invisible">
+        That didn't work. Please report this issue in the <a href="https://discord.gg/feVZWwysqM" target="_blank"
+          rel="noopener noreferrer" class="underline text-blue-400">Colony Discord</a>.
+      </p>
+      <p id="text-success" class="text-blue-400 font-semibold invisible">
+          Success! You can safely close this window now.
+      </p>
+      <p class="mt-4 text-right">
+        <button id="button-disconnect" class="inline-block bg-pink text-white rounded-3xl py-3 px-8 invisible">
+          Disconnect
+        </button>
+      </p>
+    </section>
+  </main>
+</body>
+
+</html>

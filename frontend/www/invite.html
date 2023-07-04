@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title></title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="/bundle.css" rel="stylesheet">
+</head>
+
+<body class="flex items-center justify-center h-screen bg-purple-1000">
+  <main class="container overflow-hidden mx-auto max-w-2xl md:rounded-lg">
+    <header class="bg-purple-500 p-6 relative md:p-9">
+      <img class="w-44" alt="Colony logo" src="colony.svg" />
+      <img class="w-20 absolute right-6 bottom-0 translate-y-1/2 md:right-9" alt="Discord logo" src="discord.svg" />
+    </header>
+    <section class="bg-white p-6 md:p-9">
+      <h1 class="text-xl font-semibold md:text-3xl">
+        Colony Discord Gating Bot
+      </h1>
+      <h2 class="mt-4 text-sm font-semibold text-blue-400 uppercase md:text-l">
+        Set up instructions
+      </h2>
+      <p class="mt-4">
+        You can invite the bot to your Discord server and then use the
+      <pre class="inline">/check</pre> and <pre class="inline">/gate</pre> commands there.
+      </p>
+      <p class="mt-4 font-semibold">
+        Important! After the bot has joined your Discord, you must reorder the created bot role in the role hierarchy to
+        be above
+        all roles the bot should manage.
+      </p>
+      <p class="mt-16 text-right">
+        <a href="https://discord.com/api/oauth2/authorize?client_id=1125748696043225180&permissions=268435456&scope=bot"
+          class="inline-block bg-blue-400 text-white rounded-3xl py-3 px-8">
+          Invite Gating Bot to Server
+        </a>
+      </p>
+    </section>
+  </main>
+</body>
+
+</html>

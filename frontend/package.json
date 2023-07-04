@@ -8,8 +8,8 @@
     "watch-css": "tailwindcss -i ./src/index.css -o ./www/bundle.css --watch",
     "start": "concurrently npm:watch-ts npm:watch-css",
     "build-ts": "esbuild --bundle src/index.ts --minify --outfile=dist/index.js",
-    "build-css": "tailwindcss -i ./src/index.css -o ./www/bundle.css --minify",
-    "build-html": "cpy --flat www/*.{html,woff2} dist",
+    "build-css": "tailwindcss -i ./src/index.css -o ./dist/bundle.css --minify",
+    "build-html": "cpy --flat www/*.{html,woff2,svg} dist",
     "build": "concurrently npm:build-ts npm:build-html npm:build-css"
   },
   "keywords": [
