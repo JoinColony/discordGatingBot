@@ -1,5 +1,12 @@
 //! # The colony discord gating bot
 //!
+//! Running the bot without any sub command will start an http server,
+//! connect to discord and listen for commands, all with the default configuration.
+//!
+//! Running the bot for the first time, you probably want to generate an encryption
+//! key and register the discord slash commands with the `storage` and `slash`
+//! subcommands.
+//!
 //! By default the bot will store all data encrypted in an embedded database.
 //! Most of the action will happen from slash commands in discord and the
 //! following redirects to the http server.
@@ -18,7 +25,7 @@
 //!
 //! When running the bot for the first time, no slash commands are
 //! registered for the discord application, which makes the bot pretty useless.
-//! With the `discord global/server` sub command, the bot will register all
+//! With the `slash global/server` sub command, the bot will register all
 //! slash commands either globally or for a specific guild. Global registration
 //! may take some time to propagate, while guild registration is instant.
 //!
@@ -27,6 +34,19 @@
 //! discord-gating-bot help   
 //!```
 //! also man pages are genarated by the cargo build inside the man folder
+// FIXME: write about readme generation and discord permissions (URL generator)
+// PERMISSIONS NEEDED: 268435456 (MANAGE ROLES)
+// ACTIVATE SERVER MEMBERS INTENT
+// discord-gating-bot config show
+// .. config template
+// Generate storage key
+// discord-gating-bot storage generate
+// Adjust config (bot token and invite URL)
+// Start bot
+// Go to http://localhost:8080
+// Invite bot
+// Register slash commands
+// discord-gating-bot slash register guild <GUILD_ID>
 
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
