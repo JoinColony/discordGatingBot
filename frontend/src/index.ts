@@ -5,9 +5,14 @@ const disconnectButton = document.querySelector('#button-disconnect') as HTMLBut
 const errorText = document.querySelector('#text-error') as HTMLParagraphElement;
 const successText = document.querySelector('#text-success') as HTMLParagraphElement;
 
-const pathSplit = window.location.pathname.split('/');
-const username = pathSplit[2]
-const sessionId = pathSplit[3]
+
+const urlParams = new URLSearchParams(window.location.search);
+const username = urlParams.get('username');
+const sessionId = urlParams.get('session');
+
+// const pathSplit = window.location.pathname.split('/');
+// const username = pathSplit[2]
+// const sessionId = pathSplit[3]
 
 if (connectButton) {
   if (username) {
@@ -29,7 +34,8 @@ if (connectButton) {
 
     const signature = await signer.signMessage(`Please sign this message to connect your Discord username ${username} with your wallet address. Session ID: ${sessionId}`);
 
-    const response = await fetch(window.location.href, {
+    // const response = await fetch(window.location.href, {
+    const response = await fetch(window.location.origin + '/register/' + username + '/' + sessionId, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -58,7 +64,8 @@ if (connectButton) {
 
   disconnectButton.addEventListener('click', async () => {
     disconnectButton.disabled = true;
-    const response = await fetch(window.location.href, {
+    // const response = await fetch(window.location.href, {
+    const response = await fetch(window.location.origin + '/unregister/' + username + '/' + sessionId, {
       method: 'POST'
     });
     if (response.ok) {

@@ -346,7 +346,8 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                 }
             };
             let url = format!(
-                "{}/register/{}/{}",
+                // "{}/register/{}/{}",
+                "{}/getin.html?username={}&session={}",
                 url,
                 urlencoding::encode(&session.username),
                 encoded_session
@@ -522,7 +523,8 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
         };
         debug!(?session, ?encoded_session, "Created session");
         let url = format!(
-            "{}/unregister/{}/{}",
+            // "{}/unregister/{}/{}",
+            "{}/getout.html?username={}&session={}",
             url,
             urlencoding::encode(&session.username),
             encoded_session,

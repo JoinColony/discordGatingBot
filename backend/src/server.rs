@@ -6,6 +6,7 @@ use crate::config::CONFIG;
 use crate::controller::{
     Message, RegisterResponse, RemoveUserResponse, Session, CONTROLLER_CHANNEL,
 };
+use actix_files::Files;
 use actix_web::{get, post, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
 use anyhow::{bail, Result};
 use colony_rs::Signature;
@@ -16,9 +17,6 @@ use std::str::FromStr;
 use tokio::sync::oneshot;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use tracing_actix_web::TracingLogger;
-
-static SIGN_SCRIPT: &str = include_str!("../../frontend/dist/index.js");
-static FAVICON: &[u8] = include_bytes!("../static/favicon.ico");
 
 const REGISTRATION_MESSAGE: &str = "Please sign this message to connect your \
                                     Discord username {username} with your wallet \
@@ -31,58 +29,17 @@ pub async fn start() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(TracingLogger::default())
-            .service(index)
-            .service(favicon)
-            .service(script)
-            .service(registration_page)
             .service(register)
-            .service(unregistration_page)
             .service(unregister)
+            .service(
+                Files::new("/", "./frontend/dist")
+                    .index_file("invite.html")
+                    .prefer_utf8(true),
+            )
     })
     .bind((host, port))?
     .run()
     .await
-}
-
-#[instrument]
-#[get("/")]
-async fn index() -> impl Responder {
-    debug!("Received index request");
-    Skeleton::index()
-}
-
-#[instrument]
-#[get("/index.js")]
-async fn script() -> impl Responder {
-    debug!("Received script request");
-    HttpResponse::Ok()
-        .content_type("application/javascript")
-        .body(SIGN_SCRIPT)
-}
-
-#[instrument]
-#[get("/favicon.ico")]
-async fn favicon() -> impl Responder {
-    debug!("Received favicon request");
-    HttpResponse::Ok()
-        .content_type("image/x-icon")
-        .body(FAVICON)
-}
-
-#[instrument]
-#[get("/register/{username}/{session}")]
-async fn registration_page(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received registration request");
-    let (username_url, session_str) = path.into_inner();
-    let session = match validate_session(&username_url, &session_str) {
-        Ok(session) => session,
-        Err(why) => {
-            warn!("Invalid session: {}", why);
-            return Skeleton::invalid_session(&why.to_string());
-        }
-    };
-    debug!(?session, "Valid session");
-    Skeleton::registration_page()
 }
 
 #[post("/register/{username}/{session}")]
@@ -137,22 +94,6 @@ async fn register(path: web::Path<(String, String)>, data: web::Json<JsonData>) 
         error!("Failed to receive response from controller");
         Skeleton::internal_error()
     }
-}
-
-#[get("/unregister/{username}/{session}")]
-#[instrument]
-async fn unregistration_page(path: web::Path<(String, String)>) -> impl Responder {
-    debug!("Received unregister request");
-    let (username_url, session_str) = path.into_inner();
-    let session = match validate_session(&username_url, &session_str) {
-        Ok(session) => session,
-        Err(why) => {
-            warn!("Invalid session");
-            return Skeleton::invalid_session(&why.to_string());
-        }
-    };
-    debug!(?session, "Valid session");
-    Skeleton::unregistration_page()
 }
 
 #[post("/unregister/{username}/{session}")]
