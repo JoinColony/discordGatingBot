@@ -358,7 +358,7 @@ async fn add_gate(interaction: &ApplicationCommandInteraction, ctx: &Context) ->
         error!("Error sending gate message: {:?}", why);
     }
     let mut content = MessageBuilder::new();
-    content.push("Your role: ");
+    content.push("The role ");
     content.role(role_id);
     content.push_line(" is now being gated!");
     if !is_below_bot_in_hierarchy(
@@ -708,7 +708,7 @@ async fn get_in_check(interaction: &ApplicationCommandInteraction, ctx: &Context
     follow_up(
         ctx,
         interaction,
-        "Checking your reputation in the colonies,\
+        "Checking conditions for you to get your roles,\
               this might take a while...",
         true,
     )
