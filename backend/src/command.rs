@@ -88,7 +88,14 @@ pub fn execute(cli: &Cli) {
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
-                            println!("{}: {}", user.0, user.1.expose_secret());
+                            println!(
+                                "{}: {:?}",
+                                user.0,
+                                user.1
+                                    .iter()
+                                    .map(|wallet| wallet.expose_secret())
+                                    .collect::<Vec<_>>()
+                            );
                         });
                 }
                 StorageType::Encrypted => {
@@ -99,7 +106,14 @@ pub fn execute(cli: &Cli) {
                         .skip(*start as usize)
                         .take(*end as usize - *start as usize)
                         .for_each(|user| {
-                            println!("{}: {}", user.0, user.1.expose_secret());
+                            println!(
+                                "{}: {:?}",
+                                user.0,
+                                user.1
+                                    .iter()
+                                    .map(|wallet| wallet.expose_secret())
+                                    .collect::<Vec<_>>()
+                            );
                         });
                 }
                 StorageType::InMemory => {
@@ -116,13 +130,13 @@ pub fn execute(cli: &Cli) {
                 StorageType::Unencrypted => {
                     let mut storage = SledUnencryptedStorage::new();
                     storage
-                        .add_user(*user_id, wallet_address.to_string().into())
+                        .add_user(*user_id, vec![wallet_address.to_string().into()])
                         .expect("Failed to add user");
                 }
                 StorageType::Encrypted => {
                     let mut storage = SledEncryptedStorage::new();
                     storage
-                        .add_user(*user_id, wallet_address.to_string().into())
+                        .add_user(*user_id, vec![wallet_address.to_string().into()])
                         .expect("Failed to add user");
                 }
                 StorageType::InMemory => {
@@ -262,7 +276,7 @@ pub fn execute(cli: &Cli) {
                 .storage
                 .list_gates(guild_id)
                 .expect("Failed to list gates");
-            let roles = rt.block_on(controller::check_with_wallet(wallet, gates));
+            let roles = rt.block_on(controller::check_with_wallet(wallet[0].clone(), gates));
             println!("Roles: {:?}", roles);
         }
 

@@ -7,7 +7,7 @@ use crate::controller::{
     Message, RegisterResponse, RemoveUserResponse, Session, CONTROLLER_CHANNEL,
 };
 use actix_files::Files;
-use actix_web::{get, post, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
+use actix_web::{post, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
 use anyhow::{bail, Result};
 use colony_rs::Signature;
 use sailfish::TemplateOnce;

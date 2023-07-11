@@ -377,7 +377,9 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
             }
             Ok(gates) => {
                 debug!("Found wallet for user");
-                let granted_roles = check_with_wallet(wallet, gates).in_current_span().await;
+                let granted_roles = check_with_wallet(wallet[0].clone(), gates)
+                    .in_current_span()
+                    .await;
                 let _guard = span.enter();
                 debug!(?granted_roles, "Roles granted");
                 if let Err(why) = response_tx.send(CheckResponse::Grant(granted_roles)) {
@@ -412,7 +414,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
             .filter_map(
                 |(user_id, wallet)| match self.storage.list_gates(&guild_id) {
                     Ok(gates) => Some(
-                        check_with_wallet(wallet, gates)
+                        check_with_wallet(wallet[0].clone(), gates)
                             .map(move |granted_roles| (user_id, granted_roles)),
                     ),
                     Err(why) => {
@@ -470,7 +472,7 @@ impl<S: Storage + Send + 'static + std::marker::Sync> Controller<S> {
                     why
                 );
             };
-        } else if let Err(why) = self.storage.add_user(user_id, wallet) {
+        } else if let Err(why) = self.storage.add_user(user_id, vec![wallet]) {
             error!("Failed to add user: {:?}", why);
             if let Err(why) = response_tx.send(RegisterResponse::Error(why)) {
                 error!("Failed to send RegisterResponse::Error: {:?}", why);
