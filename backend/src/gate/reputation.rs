@@ -40,7 +40,7 @@ pub struct ReputationGate {
     /// The colony address in which the reputation should be looked up
     pub colony_address: H160,
     pub colony_name: String,
-    /// The domain in which the reputation should be looked up  
+    /// The domain in which the reputation should be looked up
     pub colony_domain: u64,
     /// The reputation percentage in a domain required to be granted the role
     /// scaled by the precision factor to not lose everything after the comma in
@@ -79,7 +79,8 @@ impl GatingCondition for ReputationGate {
             },
             GateOption {
                 name: "reputation",
-                description: "The reputation amount required to be granted the role",
+                description:
+                    "The the percentage of reputation in the domain required to be granted the role",
                 required: true,
                 option_type: GateOptionType::F64 {
                     min: Some(0.0),

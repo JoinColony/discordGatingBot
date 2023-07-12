@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title></title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="index.js" async></script>
+  <link href="/bundle.css" rel="stylesheet">
+</head>
+
+<body class="flex items-center justify-center h-screen bg-purple-1000">
+  <main class="container overflow-hidden mx-auto max-w-2xl md:rounded-lg">
+    <header class="bg-purple-500 p-6 relative md:p-9">
+      <img class="w-44" alt="Colony logo" src="colony.svg" />
+      <img class="w-20 absolute right-6 bottom-0 translate-y-1/2 md:right-9" alt="Discord logo" src="discord.svg" />
+    </header>
+    <section class="bg-white p-6 md:p-9">
+      <h1 class="text-xl font-semibold md:text-3xl">
+        Colony Discord Gating Bot
+      </h1>
+      <h2 class="mt-4 text-sm font-semibold text-blue-400 uppercase md:text-l">
+        Connect your discord username to your wallet address
+      </h2>
+      <p class="mt-4">
+        Press the button below to connect your Discord username to your Ethereum Wallet address. You will need to sign a
+        message to prove that you own this address. This is a one-time operation which allows you to use the bot across
+        all servers that invited it.
+      </p>
+      <p class="mt-4 font-semibold">
+        Currently only browser-based wallets like MetaMask are supported.
+      </p>
+      <p id="text-error" class="mt-4 text-pink font-semibold invisible">
+        That didn't work. Try to use
+        <code class="text-grey">/get in</code> again or report this issue in the <a
+          href="https://discord.gg/feVZWwysqM" target="_blank" rel="noopener noreferrer"
+          class="underline text-blue-400">Colony Discord</a>.
+      </p>
+      <p id="text-success" class="text-green font-semibold invisible">
+        Success! You can safely close this window now.
+      </p>
+      <p class="mt-4 text-right">
+        <button id="button-connect" class="inline-block bg-blue-400 text-white rounded-3xl py-3 px-8 invisible">
+          Connect
+        </button>
+      </p>
+    </section>
+  </main>
+</body>
+
+</html>

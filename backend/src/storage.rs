@@ -22,7 +22,7 @@ use tracing::{debug, error, instrument};
 /// for a storage backend
 pub trait Storage {
     type GateIter: Iterator<Item = Gate>;
-    type UserIter: Iterator<Item = (u64, SecretString)>;
+    type UserIter: Iterator<Item = (u64, Vec<SecretString>)>;
     type GuildIter: Iterator<Item = u64>;
     fn new() -> Self;
     fn list_guilds(&self) -> Self::GuildIter;
@@ -30,9 +30,9 @@ pub trait Storage {
     fn add_gate(&mut self, guild_id: &u64, gate: Gate) -> Result<()>;
     fn list_gates(&self, guild_id: &u64) -> Result<Self::GateIter>;
     fn remove_gate(&mut self, guild_id: &u64, identifier: u128) -> Result<()>;
-    fn get_user(&self, user_id: &u64) -> Result<SecretString>;
+    fn get_user(&self, user_id: &u64) -> Result<Vec<SecretString>>;
     fn list_users(&self) -> Result<Self::UserIter>;
-    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()>;
+    fn add_user(&mut self, user_id: u64, wallets: Vec<SecretString>) -> Result<()>;
     fn contains_user(&self, user_id: &u64) -> bool;
     fn remove_user(&mut self, user_id: &u64) -> Result<()>;
 }
@@ -42,12 +42,12 @@ pub trait Storage {
 #[derive(Debug)]
 pub struct InMemoryStorage {
     gates: HashMap<u64, Vec<Gate>>,
-    users: HashMap<u64, SecretString>,
+    users: HashMap<u64, Vec<SecretString>>,
 }
 
 impl Storage for InMemoryStorage {
     type GateIter = std::vec::IntoIter<Gate>;
-    type UserIter = std::collections::hash_map::IntoIter<u64, SecretString>;
+    type UserIter = std::collections::hash_map::IntoIter<u64, Vec<SecretString>>;
     type GuildIter = std::collections::hash_map::IntoKeys<u64, Vec<Gate>>;
 
     fn new() -> Self {
@@ -105,7 +105,7 @@ impl Storage for InMemoryStorage {
     }
 
     #[instrument(skip(self))]
-    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+    fn get_user(&self, user_id: &u64) -> Result<Vec<SecretString>> {
         debug!("Getting user");
         self.users
             .get(user_id)
@@ -120,9 +120,9 @@ impl Storage for InMemoryStorage {
     }
 
     #[instrument(skip(self))]
-    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+    fn add_user(&mut self, user_id: u64, wallets: Vec<SecretString>) -> Result<()> {
         debug!("Adding user");
-        self.users.insert(user_id, wallet);
+        self.users.insert(user_id, wallets);
         Ok(())
     }
 
@@ -153,7 +153,7 @@ impl Storage for SledUnencryptedStorage {
         std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
     type UserIter = std::iter::FilterMap<
         sled::Iter,
-        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, SecretString)>,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, Vec<SecretString>)>,
     >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
@@ -222,7 +222,7 @@ impl Storage for SledUnencryptedStorage {
     }
 
     #[instrument(skip(self))]
-    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+    fn get_user(&self, user_id: &u64) -> Result<Vec<SecretString>> {
         debug!("Getting user");
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
@@ -235,11 +235,11 @@ impl Storage for SledUnencryptedStorage {
     fn list_users(&self) -> Result<Self::UserIter> {
         debug!("Listing users");
         Ok(self.db.iter().filter_map(|result| {
-            if let Ok((user_id, wallet)) = result {
+            if let Ok((user_id, wallets)) = result {
                 if let Ok(user_id) = user_id.to_vec().try_into() {
                     let user_id = u64::from_be_bytes(user_id);
-                    if let Ok(wallet) = bincode::deserialize::<SecretString>(&wallet) {
-                        Some((user_id, wallet))
+                    if let Ok(wallets) = bincode::deserialize::<Vec<SecretString>>(&wallets) {
+                        Some((user_id, wallets))
                     } else {
                         error!("Failed to deserialize user wallet");
                         None
@@ -256,12 +256,14 @@ impl Storage for SledUnencryptedStorage {
     }
 
     #[instrument(skip(self))]
-    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+    fn add_user(&mut self, user_id: u64, wallets: Vec<SecretString>) -> Result<()> {
         debug!("Adding user");
-        self.db.insert(
-            user_id.to_be_bytes(),
-            bincode::serialize(&wallet.expose_secret())?,
-        )?;
+        let wallets: Vec<String> = wallets
+            .iter()
+            .map(|wallet| wallet.expose_secret().clone())
+            .collect();
+        self.db
+            .insert(user_id.to_be_bytes(), bincode::serialize(&wallets)?)?;
         Ok(())
     }
 
@@ -291,7 +293,7 @@ impl Storage for SledEncryptedStorage {
         std::iter::FilterMap<sled::Iter, fn(Result<(IVec, IVec), sled::Error>) -> Option<Gate>>;
     type UserIter = std::iter::FilterMap<
         sled::Iter,
-        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, SecretString)>,
+        fn(Result<(IVec, IVec), sled::Error>) -> Option<(u64, Vec<SecretString>)>,
     >;
     type GuildIter = std::iter::FilterMap<std::vec::IntoIter<IVec>, fn(IVec) -> Option<u64>>;
 
@@ -360,7 +362,7 @@ impl Storage for SledEncryptedStorage {
     }
 
     #[instrument(skip(self))]
-    fn get_user(&self, user_id: &u64) -> Result<SecretString> {
+    fn get_user(&self, user_id: &u64) -> Result<Vec<SecretString>> {
         debug!("Getting user");
         let wallet = match self.db.get(user_id.to_be_bytes())? {
             Some(wallet) => wallet,
@@ -401,9 +403,9 @@ impl Storage for SledEncryptedStorage {
     }
 
     #[instrument(skip(self))]
-    fn add_user(&mut self, user_id: u64, wallet: SecretString) -> Result<()> {
+    fn add_user(&mut self, user_id: u64, wallets: Vec<SecretString>) -> Result<()> {
         debug!("Adding user");
-        let encrypted = EncryptionWrapper::new(wallet)?;
+        let encrypted = EncryptionWrapper::new(wallets)?;
         self.db
             .insert(user_id.to_be_bytes(), bincode::serialize(&encrypted)?)?;
         Ok(())
@@ -432,17 +434,24 @@ struct EncryptionWrapper {
 }
 
 impl EncryptionWrapper {
-    #[instrument(skip(plaintext))]
-    fn new(plaintext: SecretString) -> Result<Self> {
+    #[instrument(skip(plaintexts))]
+    fn new(plaintexts: Vec<SecretString>) -> Result<Self> {
         debug!("Encrypting wallet");
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
         let key = GenericArray::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let plain: Vec<String> = plaintexts
+            .iter()
+            .map(|p| p.expose_secret().clone())
+            .collect();
+
+        let plain_encoded = bincode::serialize(&plain)?;
+
         debug!(?nonce, "Created nonce");
         let ciphertext = cipher
-            .encrypt(&nonce, plaintext.expose_secret().as_bytes())
+            .encrypt(&nonce, &plain_encoded[..])
             .map_err(|e| anyhow!("{e}"))?;
 
         Ok(Self {
@@ -452,7 +461,7 @@ impl EncryptionWrapper {
     }
 
     #[instrument(skip(self))]
-    fn decrypt(&self) -> Result<SecretString> {
+    fn decrypt(&self) -> Result<Vec<SecretString>> {
         debug!("Decrypting wallet");
         let key_hex = &CONFIG.wait().storage.key.expose_secret();
         let key_bytes = hex::decode(key_hex)?;
@@ -460,9 +469,10 @@ impl EncryptionWrapper {
         let cipher = ChaCha20Poly1305::new(key);
         let nonce = GenericArray::from_slice(&self.nonce);
         debug!(?nonce, "Using nonce");
-        let plaintext = cipher
+        let decrypted = cipher
             .decrypt(nonce, self.ciphertext.as_ref())
             .map_err(|e| anyhow!("{e}"))?;
-        Ok(String::from_utf8(plaintext)?.into())
+        Ok(bincode::deserialize::<Vec<SecretString>>(&decrypted)?)
+        // Ok(String::from_utf8(plaintext)?.into())
     }
 }
