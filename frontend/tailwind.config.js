@@ -10,9 +10,7 @@ module.exports = {
         400: '#289BDC',
       },
       green: '#19A582',
-      grey: {
-        500: '#A4B6C7',
-      },
+      grey: '#A4B6C7',
       pink: '#F5416E',
       purple: {
         1000: '#101828',
