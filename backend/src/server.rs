@@ -215,23 +215,6 @@ impl Skeleton {
     }
 
     #[instrument]
-    fn index() -> HttpResponse {
-        let link = CONFIG.wait().discord.invite_url.clone();
-        Skeleton {
-            index_script: None,
-            paragraph_text: r#"
-This is the <a href="https://colony.io">colony</a> discord bot. You can invite the bot to your discord server and then use the <b>/get in</b> and <b>/gate</b> commands there. After the bot joined, you must reorder the created bot role in the role hierarchy to be above all roles the bot should manage.
-            "#.to_string(),
-            button: Some(Button {
-                text: "Invite Bot",
-                link,
-            }),
-            form_input: None,
-        }
-        .render_response("index", HttpResponse::Ok())
-    }
-
-    #[instrument]
     fn invalid_session(reason: &str) -> HttpResponse {
         Skeleton {
             index_script: None,

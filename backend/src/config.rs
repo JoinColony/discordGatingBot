@@ -88,9 +88,6 @@ pub struct DiscordConfig {
     /// The discord bot token
     #[config(env = "CLNY_DISCORD_TOKEN")]
     pub token: SecretString,
-    /// The discor bot invitation url
-    #[config(env = "CLNY_DISCORD_INVITATION_URL")]
-    pub invite_url: String,
 }
 
 /// Partial configuration used to construct the final configuration
@@ -309,7 +306,6 @@ fn get_config_hirarchy(
         session_expiration: raw_cli_cfg.session_expiration,
         discord: PartialDiscordConf {
             token: raw_cli_cfg.discord.token.clone(),
-            invite_url: raw_cli_cfg.discord.invite_url.clone(),
         },
         server: PartialServerConf {
             url: raw_cli_cfg.server.url.clone(),

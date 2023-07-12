@@ -888,9 +888,9 @@ async fn grant_roles(
     let mut content = MessageBuilder::new();
     content.user(&interaction.user);
     if granted_roles.is_empty() {
-        content.push_line("used the `/get in` but sadly, didn't get any roles yet 😢");
+        content.push_line(" used the `/get in` but sadly, didn't get any roles yet 😢");
     } else {
-        content.push("used the `/get in` command and got the following roles: ");
+        content.push(" used the `/get in` command and got the following roles: ");
         for role in granted_roles.iter() {
             content.role(*role);
         }
