@@ -22,4 +22,6 @@ RUN echo "source /usr/local/share/bash-completion/completions/discord-gating-bot
     echo "source /etc/profile.d/bash_completion.sh" >> ~/.bashrc && \
     mandb
 
+EXPOSE 8080
+
 CMD ["discord-gating-bot"]
