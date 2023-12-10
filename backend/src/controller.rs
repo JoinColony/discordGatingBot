@@ -746,7 +746,9 @@ mod tests {
     use crate::storage;
 
     async fn setup() {
-        let cfg = CliConfig::default();
+        let mut cfg = CliConfig::default();
+        cfg.discord.token = Some(secrecy::SecretString::new("dummyToken".to_owned()));
+        cfg.storage.key= Some(secrecy::SecretString::new("dummyKey".to_owned()));
         setup_config(&cfg).unwrap();
         Controller::<storage::InMemoryStorage>::init().await;
     }
